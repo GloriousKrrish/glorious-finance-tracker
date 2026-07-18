@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TransactionsRouteImport } from './routes/transactions'
 import { Route as LoansRouteImport } from './routes/loans'
 import { Route as InvestmentsRouteImport } from './routes/investments'
+import { Route as GoalsRouteImport } from './routes/goals'
 import { Route as BudgetsRouteImport } from './routes/budgets'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AccountsRouteImport } from './routes/accounts'
@@ -30,6 +31,11 @@ const LoansRoute = LoansRouteImport.update({
 const InvestmentsRoute = InvestmentsRouteImport.update({
   id: '/investments',
   path: '/investments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GoalsRoute = GoalsRouteImport.update({
+  id: '/goals',
+  path: '/goals',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BudgetsRoute = BudgetsRouteImport.update({
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AccountsRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
   '/transactions': typeof TransactionsRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/accounts': typeof AccountsRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
   '/transactions': typeof TransactionsRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/accounts': typeof AccountsRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
   '/transactions': typeof TransactionsRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/bills'
     | '/budgets'
+    | '/goals'
     | '/investments'
     | '/loans'
     | '/transactions'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/bills'
     | '/budgets'
+    | '/goals'
     | '/investments'
     | '/loans'
     | '/transactions'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/bills'
     | '/budgets'
+    | '/goals'
     | '/investments'
     | '/loans'
     | '/transactions'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   AccountsRoute: typeof AccountsRoute
   BillsRoute: typeof BillsRoute
   BudgetsRoute: typeof BudgetsRoute
+  GoalsRoute: typeof GoalsRoute
   InvestmentsRoute: typeof InvestmentsRoute
   LoansRoute: typeof LoansRoute
   TransactionsRoute: typeof TransactionsRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/investments'
       fullPath: '/investments'
       preLoaderRoute: typeof InvestmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals': {
+      id: '/goals'
+      path: '/goals'
+      fullPath: '/goals'
+      preLoaderRoute: typeof GoalsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/budgets': {
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccountsRoute: AccountsRoute,
   BillsRoute: BillsRoute,
   BudgetsRoute: BudgetsRoute,
+  GoalsRoute: GoalsRoute,
   InvestmentsRoute: InvestmentsRoute,
   LoansRoute: LoansRoute,
   TransactionsRoute: TransactionsRoute,
