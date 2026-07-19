@@ -88,37 +88,45 @@ function Dashboard() {
               <div className="font-numeric text-lg font-semibold text-foreground">{totals.savingsRate.toFixed(1)}%</div>
             </div>
           </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.35} /><stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-gold)" stopOpacity={0.35} /><stop offset="95%" stopColor="var(--color-gold)" stopOpacity={0} /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                <XAxis dataKey="m" stroke="var(--color-muted-foreground)" fontSize={12} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={12} tickFormatter={(v) => formatINR(v, { compact: true })} />
-                <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} formatter={(v: number) => formatINR(v)} />
-                <Area type="monotone" dataKey="income" stroke="var(--color-primary)" strokeWidth={2} fill="url(#gInc)" />
-                <Area type="monotone" dataKey="expense" stroke="var(--color-gold)" strokeWidth={2} fill="url(#gExp)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="h-64 flex items-center justify-center">
+            {transactions.length === 0 ? (
+              <span className="text-sm text-muted-foreground">No data available</span>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.35} /><stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} /></linearGradient>
+                    <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-gold)" stopOpacity={0.35} /><stop offset="95%" stopColor="var(--color-gold)" stopOpacity={0} /></linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                  <XAxis dataKey="m" stroke="var(--color-muted-foreground)" fontSize={12} />
+                  <YAxis stroke="var(--color-muted-foreground)" fontSize={12} tickFormatter={(v) => formatINR(v, { compact: true })} />
+                  <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} formatter={(v: number) => formatINR(v)} />
+                  <Area type="monotone" dataKey="income" stroke="var(--color-primary)" strokeWidth={2} fill="url(#gInc)" />
+                  <Area type="monotone" dataKey="expense" stroke="var(--color-gold)" strokeWidth={2} fill="url(#gExp)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
         <Card className="card-luxe p-6">
           <h3 className="font-display text-lg font-semibold">Expense Mix</h3>
           <p className="text-xs text-muted-foreground">By category</p>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={catData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={2}>
-                  {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => formatINR(v)} contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="h-56 flex items-center justify-center">
+            {catData.length === 0 ? (
+              <span className="text-sm text-muted-foreground">No data available</span>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={catData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={2}>
+                    {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => formatINR(v)} contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
@@ -127,42 +135,52 @@ function Dashboard() {
             <h3 className="font-display text-lg font-semibold">Recent Transactions</h3>
             <a href="/transactions" className="text-xs font-medium text-primary hover:underline">View all →</a>
           </div>
-          <ul className="divide-y divide-border/60">
-            {transactions.slice(0, 6).map(t => (
-              <li key={t.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-full ${t.kind === "income" ? "bg-success/10 text-success" : "bg-muted text-foreground"}`}>
-                    {t.kind === "income" ? <ArrowDownRight className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{t.merchant || t.category}</div>
-                    <div className="text-xs text-muted-foreground">{t.category} · {new Date(t.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>
-                  </div>
-                </div>
-                <div className={`font-numeric text-sm font-semibold ${t.kind === "income" ? "text-success" : "text-foreground"}`}>
-                  {t.kind === "income" ? "+" : "−"}{formatINR(t.amount)}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-2">
+            {transactions.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">No recent transactions.</div>
+            ) : (
+              <ul className="divide-y divide-border/60">
+                {transactions.slice(0, 6).map(t => (
+                  <li key={t.id} className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-full ${t.kind === "income" ? "bg-success/10 text-success" : "bg-muted text-foreground"}`}>
+                        {t.kind === "income" ? <ArrowDownRight className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">{t.merchant || t.category}</div>
+                        <div className="text-xs text-muted-foreground">{t.category} · {new Date(t.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>
+                      </div>
+                    </div>
+                    <div className={`font-numeric text-sm font-semibold ${t.kind === "income" ? "text-success" : "text-foreground"}`}>
+                      {t.kind === "income" ? "+" : "−"}{formatINR(t.amount)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </Card>
 
         <Card className="card-luxe p-6">
           <h3 className="font-display text-lg font-semibold">Goal Progress</h3>
           <p className="text-xs text-muted-foreground">Top savings targets</p>
           <div className="mt-4 space-y-4">
-            {goals.slice(0, 3).map(g => {
-              const p = Math.min(100, (g.saved / g.target) * 100);
-              return (
-                <div key={g.id}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">{g.name}</span>
-                    <span className="font-numeric text-xs text-muted-foreground">{formatINR(g.saved, { compact: true })} / {formatINR(g.target, { compact: true })}</span>
+            {goals.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">No active goals.</div>
+            ) : (
+              goals.slice(0, 3).map(g => {
+                const p = Math.min(100, (g.saved / g.target) * 100);
+                return (
+                  <div key={g.id}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{g.name}</span>
+                      <span className="font-numeric text-xs text-muted-foreground">{formatINR(g.saved, { compact: true })} / {formatINR(g.target, { compact: true })}</span>
+                    </div>
+                    <Progress value={p} className="mt-2 h-1.5" />
                   </div>
-                  <Progress value={p} className="mt-2 h-1.5" />
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </Card>
       </div>

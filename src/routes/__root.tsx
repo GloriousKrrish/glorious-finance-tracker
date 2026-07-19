@@ -90,8 +90,10 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AuthGate />
-        <Toaster position="top-right" />
+        <StoreProvider>
+          <AuthGate />
+          <Toaster position="top-right" />
+        </StoreProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
@@ -115,26 +117,24 @@ function AuthGate() {
   if (!session) return <BootScreen />;
 
   return (
-    <StoreProvider>
-      <SidebarProvider>
-        <div className="flex min-h-screen w-full bg-background">
-          <AppSidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
-              <SidebarTrigger />
-              <div className="ml-2 hidden text-xs font-medium uppercase tracking-widest text-muted-foreground md:block">
-                Private Wealth Console
-              </div>
-              <div className="ml-auto flex items-center gap-3">
-                <span className="hidden text-xs text-muted-foreground md:inline">All values in INR</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">GF</div>
-              </div>
-            </header>
-            <main className="flex-1"><Outlet /></main>
-          </div>
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full bg-background">
+        <AppSidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
+            <SidebarTrigger />
+            <div className="ml-2 hidden text-xs font-medium uppercase tracking-widest text-muted-foreground md:block">
+              Private Wealth Console
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="hidden text-xs text-muted-foreground md:inline">All values in INR</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">GF</div>
+            </div>
+          </header>
+          <main className="flex-1"><Outlet /></main>
         </div>
-      </SidebarProvider>
-    </StoreProvider>
+      </div>
+    </SidebarProvider>
   );
 }
 
