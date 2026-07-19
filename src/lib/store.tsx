@@ -1,95 +1,28 @@
-import { createContext, useContext, useEffect, useReducer, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth-context";
 
 export type ID = string;
 
-export interface Account {
-  id: ID;
-  name: string;
-  type: "bank" | "cash" | "credit_card" | "wallet" | "investment";
-  balance: number;
-  institution?: string;
-}
-
+export interface Account { id: ID; name: string; type: "bank" | "cash" | "credit_card" | "wallet" | "investment"; balance: number; institution?: string; }
 export type TxnKind = "income" | "expense" | "transfer";
-export interface Transaction {
-  id: ID;
-  date: string; // ISO
-  amount: number; // positive; sign inferred by kind
-  kind: TxnKind;
-  category: string;
-  accountId: ID;
-  merchant?: string;
-  note?: string;
-}
-
-export interface Budget {
-  id: ID;
-  category: string;
-  limit: number;
-  period: "monthly" | "weekly" | "yearly";
-}
-
-export interface Investment {
-  id: ID;
-  name: string;
-  type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other";
-  invested: number;
-  current: number;
-  units?: number;
-}
-
-export interface Loan {
-  id: ID;
-  name: string;
-  type: "home" | "car" | "personal" | "education" | "gold" | "business";
-  principal: number;
-  outstanding: number;
-  rate: number; // annual %
-  emi: number;
-  tenureMonths: number;
-  startDate: string;
-}
-
-export interface Bill {
-  id: ID;
-  name: string;
-  amount: number;
-  dueDate: string;
-  category: string;
-  recurring: "none" | "monthly" | "yearly" | "weekly";
-  paid: boolean;
-}
-
-export interface Goal {
-  id: ID;
-  name: string;
-  target: number;
-  saved: number;
-  deadline: string;
-  category: string;
-}
-
-export interface Profile {
-  name: string;
-  email: string;
-  userType: "personal" | "employee" | "student" | "business" | "freelancer" | "family" | "hni";
-  currency: "INR";
-}
+export interface Transaction { id: ID; date: string; amount: number; kind: TxnKind; category: string; accountId: ID; merchant?: string; note?: string; }
+export interface Budget { id: ID; category: string; limit: number; period: "monthly" | "weekly" | "yearly"; }
+export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other"; invested: number; current: number; units?: number; }
+export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; }
+export interface Bill { id: ID; name: string; amount: number; dueDate: string; category: string; recurring: "none" | "monthly" | "yearly" | "weekly"; paid: boolean; }
+export interface Goal { id: ID; name: string; target: number; saved: number; deadline: string; category: string; }
+export interface Profile { name: string; email: string; userType: "personal" | "employee" | "student" | "business" | "freelancer" | "family" | "hni"; currency: "INR"; }
 
 export interface State {
   profile: Profile;
-  accounts: Account[];
-  transactions: Transaction[];
-  budgets: Budget[];
-  investments: Investment[];
-  loans: Loan[];
-  bills: Bill[];
-  goals: Goal[];
+  accounts: Account[]; transactions: Transaction[]; budgets: Budget[];
+  investments: Investment[]; loans: Loan[]; bills: Bill[]; goals: Goal[];
 }
 
-const STORAGE_KEY = "gloriousfinance:v1";
+function iso(o: number) { const d = new Date(); d.setDate(d.getDate() + o); return d.toISOString().slice(0, 10); }
 
-const initialState: State = {
+const demoState: State = {
   profile: { name: "Your Name", email: "you@example.com", userType: "personal", currency: "INR" },
   accounts: [
     { id: "a1", name: "HDFC Savings", type: "bank", balance: 245000, institution: "HDFC Bank" },
@@ -135,52 +68,35 @@ const initialState: State = {
   ],
 };
 
-function iso(offsetDays: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
-}
+const emptyState: State = {
+  profile: { name: "", email: "", userType: "personal", currency: "INR" },
+  accounts: [], transactions: [], budgets: [], investments: [], loans: [], bills: [], goals: [],
+};
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
 type Action =
-  | { type: "hydrate"; payload: State }
-  | { type: "reset" }
+  | { type: "hydrate"; payload: State } | { type: "reset" } | { type: "loadDemo" }
   | { type: "profile:update"; payload: Partial<Profile> }
-  | { type: "account:add"; payload: Account }
-  | { type: "account:update"; payload: Account }
-  | { type: "account:remove"; payload: ID }
-  | { type: "txn:add"; payload: Transaction }
-  | { type: "txn:update"; payload: Transaction }
-  | { type: "txn:remove"; payload: ID }
-  | { type: "budget:add"; payload: Budget }
-  | { type: "budget:update"; payload: Budget }
-  | { type: "budget:remove"; payload: ID }
-  | { type: "inv:add"; payload: Investment }
-  | { type: "inv:update"; payload: Investment }
-  | { type: "inv:remove"; payload: ID }
-  | { type: "loan:add"; payload: Loan }
-  | { type: "loan:update"; payload: Loan }
-  | { type: "loan:remove"; payload: ID }
-  | { type: "bill:add"; payload: Bill }
-  | { type: "bill:update"; payload: Bill }
-  | { type: "bill:remove"; payload: ID }
-  | { type: "goal:add"; payload: Goal }
-  | { type: "goal:update"; payload: Goal }
-  | { type: "goal:remove"; payload: ID };
+  | { type: "account:add"; payload: Account } | { type: "account:update"; payload: Account } | { type: "account:remove"; payload: ID }
+  | { type: "txn:add"; payload: Transaction } | { type: "txn:update"; payload: Transaction } | { type: "txn:remove"; payload: ID }
+  | { type: "budget:add"; payload: Budget } | { type: "budget:update"; payload: Budget } | { type: "budget:remove"; payload: ID }
+  | { type: "inv:add"; payload: Investment } | { type: "inv:update"; payload: Investment } | { type: "inv:remove"; payload: ID }
+  | { type: "loan:add"; payload: Loan } | { type: "loan:update"; payload: Loan } | { type: "loan:remove"; payload: ID }
+  | { type: "bill:add"; payload: Bill } | { type: "bill:update"; payload: Bill } | { type: "bill:remove"; payload: ID }
+  | { type: "goal:add"; payload: Goal } | { type: "goal:update"; payload: Goal } | { type: "goal:remove"; payload: ID };
 
 function upsert<T extends { id: ID }>(arr: T[], item: T) {
   const i = arr.findIndex((x) => x.id === item.id);
   if (i === -1) return [item, ...arr];
-  const c = arr.slice();
-  c[i] = item;
-  return c;
+  const c = arr.slice(); c[i] = item; return c;
 }
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "hydrate": return action.payload;
-    case "reset": return initialState;
+    case "reset": return emptyState;
+    case "loadDemo": return demoState;
     case "profile:update": return { ...state, profile: { ...state.profile, ...action.payload } };
     case "account:add": return { ...state, accounts: [action.payload, ...state.accounts] };
     case "account:update": return { ...state, accounts: upsert(state.accounts, action.payload) };
@@ -206,26 +122,58 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-const Ctx = createContext<{ state: State; dispatch: React.Dispatch<Action> } | null>(null);
+const Ctx = createContext<{ state: State; dispatch: React.Dispatch<Action>; loading: boolean } | null>(null);
+
+function isEmpty(s: State) {
+  return !s.accounts?.length && !s.transactions?.length && !s.budgets?.length && !s.investments?.length && !s.loans?.length && !s.bills?.length && !s.goals?.length;
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const { user, loading: authLoading } = useAuth();
+  const [state, dispatch] = useReducer(reducer, emptyState);
+  const [loading, setLoading] = useState(true);
+  const initialLoad = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Load from Supabase on user change
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) dispatch({ type: "hydrate", payload: JSON.parse(raw) });
-    } catch {}
-  }, []);
+    if (authLoading) return;
+    if (!user) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    supabase.from("user_finance_state").select("state").eq("user_id", user.id).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const raw = (data?.state ?? {}) as Partial<State>;
+        const loaded: State = { ...emptyState, ...raw, profile: { ...emptyState.profile, ...(raw.profile ?? {}), email: user.email ?? "" } };
+        // If first time and completely empty, seed with demo so users see the template
+        if (isEmpty(loaded)) {
+          const seeded = { ...demoState, profile: { ...demoState.profile, email: user.email ?? "", name: user.user_metadata?.full_name ?? demoState.profile.name } };
+          dispatch({ type: "hydrate", payload: seeded });
+        } else {
+          dispatch({ type: "hydrate", payload: loaded });
+        }
+        initialLoad.current = true;
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id, authLoading]);
 
+  // Save on state change (debounced)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {}
-  }, [state]);
+    if (!user || !initialLoad.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      supabase.from("user_finance_state").upsert({ user_id: user.id, state: state as never, updated_at: new Date().toISOString() }).then(() => {});
+    }, 700);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [state, user?.id]);
 
-  return <Ctx.Provider value={{ state, dispatch }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ state, dispatch, loading }}>{children}</Ctx.Provider>;
 }
+
+// Re-export for setState-style loading indicator
+import { useState } from "react";
 
 export function useStore() {
   const c = useContext(Ctx);
