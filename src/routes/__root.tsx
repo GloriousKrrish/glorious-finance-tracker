@@ -3,6 +3,8 @@ import {
   Outlet,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
+  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -10,10 +12,12 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { StoreProvider } from "@/lib/store";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
+import { Loader2, Sparkles } from "lucide-react";
 
 function NotFoundComponent() {
   return (
@@ -85,27 +89,65 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <StoreProvider>
-        <SidebarProvider>
-          <div className="flex min-h-screen w-full bg-background">
-            <AppSidebar />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
-                <SidebarTrigger />
-                <div className="ml-2 hidden text-xs font-medium uppercase tracking-widest text-muted-foreground md:block">
-                  Private Wealth Console
-                </div>
-                <div className="ml-auto flex items-center gap-3">
-                  <span className="hidden text-xs text-muted-foreground md:inline">All values in INR</span>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">GF</div>
-                </div>
-              </header>
-              <main className="flex-1"><Outlet /></main>
-            </div>
-          </div>
-          <Toaster position="top-right" />
-        </SidebarProvider>
-      </StoreProvider>
+      <AuthProvider>
+        <AuthGate />
+        <Toaster position="top-right" />
+      </AuthProvider>
     </QueryClientProvider>
+  );
+}
+
+function AuthGate() {
+  const { session, loading } = useAuth();
+  const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const navigate = useNavigate();
+  const isAuthRoute = pathname === "/auth";
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session && !isAuthRoute) navigate({ to: "/auth", replace: true });
+  }, [session, loading, isAuthRoute, navigate]);
+
+  if (loading) return <BootScreen />;
+
+  if (isAuthRoute) return <Outlet />;
+
+  if (!session) return <BootScreen />;
+
+  return (
+    <StoreProvider>
+      <SidebarProvider>
+        <div className="flex min-h-screen w-full bg-background">
+          <AppSidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
+              <SidebarTrigger />
+              <div className="ml-2 hidden text-xs font-medium uppercase tracking-widest text-muted-foreground md:block">
+                Private Wealth Console
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="hidden text-xs text-muted-foreground md:inline">All values in INR</span>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">GF</div>
+              </div>
+            </header>
+            <main className="flex-1"><Outlet /></main>
+          </div>
+        </div>
+      </SidebarProvider>
+    </StoreProvider>
+  );
+}
+
+function BootScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-canvas via-background to-ivory">
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg">
+          <Sparkles className="h-5 w-5 text-gold" />
+        </div>
+        <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">GloriousFinance</div>
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    </div>
   );
 }
