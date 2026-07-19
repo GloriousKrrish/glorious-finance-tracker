@@ -18,6 +18,7 @@ import { Route as BudgetsRouteImport } from './routes/budgets'
 import { Route as GoalsRouteImport } from './routes/goals'
 import { Route as InvestmentsRouteImport } from './routes/investments'
 import { Route as LoansRouteImport } from './routes/loans'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -68,6 +69,11 @@ const LoansRoute = LoansRouteImport.update({
   path: '/loans',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsRoute = ReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
+  '/onboarding': typeof OnboardingRoute
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
+  '/onboarding': typeof OnboardingRoute
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
+  '/onboarding': typeof OnboardingRoute
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/goals'
     | '/investments'
     | '/loans'
+    | '/onboarding'
     | '/reports'
     | '/sessions'
     | '/settings'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/goals'
     | '/investments'
     | '/loans'
+    | '/onboarding'
     | '/reports'
     | '/sessions'
     | '/settings'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/goals'
     | '/investments'
     | '/loans'
+    | '/onboarding'
     | '/reports'
     | '/sessions'
     | '/settings'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   GoalsRoute: typeof GoalsRoute
   InvestmentsRoute: typeof InvestmentsRoute
   LoansRoute: typeof LoansRoute
+  OnboardingRoute: typeof OnboardingRoute
   ReportsRoute: typeof ReportsRoute
   SessionsRoute: typeof SessionsRoute
   SettingsRoute: typeof SettingsRoute
@@ -264,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoansRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reports': {
       id: '/reports'
       path: '/reports'
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   GoalsRoute: GoalsRoute,
   InvestmentsRoute: InvestmentsRoute,
   LoansRoute: LoansRoute,
+  OnboardingRoute: OnboardingRoute,
   ReportsRoute: ReportsRoute,
   SessionsRoute: SessionsRoute,
   SettingsRoute: SettingsRoute,

@@ -96,7 +96,7 @@ function LoansPage() {
             </Card>
           );
         })}
-        {state.loans.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">No loans tracked yet.</Card>}
+        {state.loans.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">No active loans</Card>}
       </div>
     </div>
   );

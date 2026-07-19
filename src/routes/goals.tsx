@@ -89,7 +89,7 @@ function GoalsPage() {
             </Card>
           );
         })}
-        {state.goals.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">No goals yet — set your first milestone.</Card>}
+        {state.goals.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">Start your first financial goal</Card>}
       </div>
     </div>
   );

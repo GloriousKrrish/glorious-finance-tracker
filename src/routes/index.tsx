@@ -1,11 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { formatINR } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
+import { ChecklistWidget } from "@/components/checklist-widget";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ArrowUpRight, ArrowDownRight, TrendingUp, Wallet, Landmark, Sparkles } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Wallet, Landmark, Sparkles, ShieldCheck } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
   PieChart, Pie, Cell, Legend,
@@ -18,7 +19,7 @@ export const Route = createFileRoute("/")({
 
 function Dashboard() {
   const { state } = useStore();
-  const { accounts, transactions, investments, loans, goals } = state;
+  const { accounts, transactions, investments, loans, goals, budgets } = state;
 
   const totals = useMemo(() => {
     const assets = accounts.filter(a => a.balance > 0).reduce((s, a) => s + a.balance, 0)
@@ -36,6 +37,55 @@ function Dashboard() {
     const invReturn = investments.reduce((s, i) => s + (i.current - i.invested), 0);
     return { assets, liabilities, netWorth, income, expense, savingsRate, invReturn };
   }, [accounts, transactions, investments, loans]);
+
+  const healthScore = useMemo(() => {
+    let score = 75; // baseline
+
+    // 1. Savings Rate impact: up to +15 or -10
+    if (totals.savingsRate > 35) score += 15;
+    else if (totals.savingsRate > 20) score += 10;
+    else if (totals.savingsRate > 10) score += 5;
+    else if (totals.savingsRate === 0) score -= 10;
+
+    // 2. Debt-to-Asset Ratio impact: up to +10 or -20
+    const totalLoans = loans.reduce((s, l) => s + l.outstanding, 0);
+    if (totals.assets > 0 && totalLoans > 0) {
+      const ratio = totalLoans / totals.assets;
+      if (ratio <= 0.1) score += 10;
+      else if (ratio <= 0.3) score += 5;
+      else if (ratio > 0.5) score -= 20;
+    } else if (totalLoans === 0) {
+      score += 10;
+    }
+
+    // 3. Budgets overrun impact: -10 per exceeded budget
+    const now = new Date();
+    const currentMonthExpenses = new Map<string, number>();
+    transactions
+      .filter(t => t.kind === "expense")
+      .forEach(t => {
+        const d = new Date(t.date);
+        if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+          currentMonthExpenses.set(t.category, (currentMonthExpenses.get(t.category) || 0) + t.amount);
+        }
+      });
+
+    budgets.forEach(b => {
+      const spent = currentMonthExpenses.get(b.category) || 0;
+      if (spent > b.limit) {
+        score -= 10;
+      }
+    });
+
+    // 4. Goals progress impact: +5 per goal that is >50% funded
+    goals.forEach(g => {
+      const pct = g.target ? (g.saved / g.target) * 100 : 0;
+      if (pct >= 100) score += 5;
+      else if (pct >= 50) score += 3;
+    });
+
+    return Math.max(10, Math.min(100, score));
+  }, [totals.savingsRate, totals.assets, loans, transactions, budgets, goals]);
 
   const trend = useMemo(() => {
     const buckets: Record<string, { m: string; income: number; expense: number }> = {};
@@ -69,11 +119,13 @@ function Dashboard() {
         title={`Good ${greet()}, ${state.profile.name.split(" ")[0]}`}
         subtitle="Your financial position at a glance — private, precise, and current."
       />
-      <div className="grid gap-4 p-6 md:grid-cols-2 md:gap-6 md:p-10 lg:grid-cols-4">
+      <ChecklistWidget />
+      <div className="grid gap-4 p-6 md:grid-cols-2 md:gap-6 md:p-10 lg:grid-cols-5">
         <KpiCard label="Net Worth" value={formatINR(totals.netWorth, { compact: true })} sub={`Assets ${formatINR(totals.assets, { compact: true })}`} icon={<Sparkles className="h-4 w-4 text-gold" />} accent="gold" />
         <KpiCard label="Cash & Bank" value={formatINR(accounts.filter(a => a.type !== "credit_card").reduce((s, a) => s + a.balance, 0), { compact: true })} sub={`${accounts.length} accounts`} icon={<Wallet className="h-4 w-4" />} />
         <KpiCard label="Investments" value={formatINR(investments.reduce((s, i) => s + i.current, 0), { compact: true })} sub={`${totals.invReturn >= 0 ? "+" : ""}${formatINR(totals.invReturn, { compact: true })} unrealised`} icon={<TrendingUp className="h-4 w-4" />} trend={totals.invReturn >= 0 ? "up" : "down"} />
         <KpiCard label="Loans Outstanding" value={formatINR(loans.reduce((s, l) => s + l.outstanding, 0), { compact: true })} sub={`${loans.length} active`} icon={<Landmark className="h-4 w-4" />} />
+        <KpiCard label="Health Score" value={`${healthScore}/100`} sub={healthScore >= 80 ? "Excellent standing" : healthScore >= 60 ? "Good standing" : "Needs attention"} icon={<ShieldCheck className={`h-4 w-4 ${healthScore >= 80 ? "text-success" : healthScore >= 60 ? "text-warning" : "text-destructive"}`} />} />
       </div>
 
       <div className="grid gap-6 px-6 pb-6 md:px-10 md:pb-10 lg:grid-cols-3">
@@ -90,7 +142,10 @@ function Dashboard() {
           </div>
           <div className="h-64 flex items-center justify-center">
             {transactions.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No data available</span>
+              <div className="flex flex-col items-center justify-center text-center text-xs text-muted-foreground">
+                <TrendingUp className="h-8 w-8 text-muted-foreground/35 mb-2" />
+                No financial data available
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -115,7 +170,10 @@ function Dashboard() {
           <p className="text-xs text-muted-foreground">By category</p>
           <div className="h-56 flex items-center justify-center">
             {catData.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No data available</span>
+              <div className="flex flex-col items-center justify-center text-center text-xs text-muted-foreground">
+                <PieChart className="h-8 w-8 text-muted-foreground/35 mb-2" />
+                No financial data available
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -133,7 +191,7 @@ function Dashboard() {
         <Card className="card-luxe p-6 lg:col-span-2">
           <div className="mb-4 flex items-end justify-between">
             <h3 className="font-display text-lg font-semibold">Recent Transactions</h3>
-            <a href="/transactions" className="text-xs font-medium text-primary hover:underline">View all →</a>
+            <Link to="/transactions" className="text-xs font-medium text-primary hover:underline">View all →</Link>
           </div>
           <div className="mt-2">
             {transactions.length === 0 ? (

@@ -13,11 +13,13 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { StoreProvider } from "@/lib/store";
+import { StoreProvider, useStore } from "@/lib/store";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { Loader2, Sparkles } from "lucide-react";
+import { SyncStatusIndicator } from "@/components/sync-status";
+import { NotificationsPopover } from "@/components/notifications-popover";
 
 function NotFoundComponent() {
   return (
@@ -101,18 +103,41 @@ function RootComponent() {
 
 function AuthGate() {
   const { session, loading } = useAuth();
+  const { state, loading: storeLoading } = useStore();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const isAuthRoute = pathname === "/auth";
+  const isOnboardingRoute = pathname === "/onboarding";
 
   useEffect(() => {
     if (loading) return;
-    if (!session && !isAuthRoute) navigate({ to: "/auth", replace: true });
-  }, [session, loading, isAuthRoute, navigate]);
+    if (!session) {
+      if (!isAuthRoute) navigate({ to: "/auth", replace: true });
+      return;
+    }
 
-  if (loading) return <BootScreen />;
+    if (storeLoading) return;
 
-  if (isAuthRoute) return <Outlet />;
+    const onboardingCompleted = state.profile.onboardingCompleted ?? false;
+    const hasAccounts = state.accounts && state.accounts.length > 0;
+    
+    // Show onboarding if not completed OR if no accounts exist
+    const needsOnboarding = !onboardingCompleted || !hasAccounts;
+
+    if (needsOnboarding) {
+      if (!isOnboardingRoute && !isAuthRoute) {
+        navigate({ to: "/onboarding", replace: true });
+      }
+    } else {
+      if (isOnboardingRoute) {
+        navigate({ to: "/", replace: true });
+      }
+    }
+  }, [session, loading, storeLoading, state, isAuthRoute, isOnboardingRoute, pathname, navigate]);
+
+  if (loading || (session && storeLoading)) return <BootScreen />;
+
+  if (isAuthRoute || isOnboardingRoute) return <Outlet />;
 
   if (!session) return <BootScreen />;
 
@@ -127,6 +152,8 @@ function AuthGate() {
               Private Wealth Console
             </div>
             <div className="ml-auto flex items-center gap-3">
+              <SyncStatusIndicator />
+              <NotificationsPopover />
               <span className="hidden text-xs text-muted-foreground md:inline">All values in INR</span>
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">GF</div>
             </div>

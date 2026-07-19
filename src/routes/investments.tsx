@@ -84,17 +84,24 @@ function InvPage() {
       <div className="grid gap-6 px-6 pb-10 md:px-10 lg:grid-cols-3">
         <Card className="card-luxe p-6">
           <h3 className="font-display text-lg font-semibold">Asset Allocation</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={alloc} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={2}>
-                  {alloc.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => formatINR(v)} contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+          {state.investments.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center text-center text-xs text-muted-foreground">
+              <PieChart className="h-10 w-10 text-muted-foreground/35 mb-2" />
+              No financial data available
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={alloc} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {alloc.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => formatINR(v)} contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </Card>
 
         <Card className="card-luxe overflow-hidden lg:col-span-2">
@@ -130,7 +137,7 @@ function InvPage() {
                     </TableRow>
                   );
                 })}
-                {state.investments.length === 0 && <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">Add your first holding to see analytics.</TableCell></TableRow>}
+                {state.investments.length === 0 && <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">Track your first investment</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>

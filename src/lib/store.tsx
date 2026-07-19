@@ -12,7 +12,14 @@ export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; }
 export interface Bill { id: ID; name: string; amount: number; dueDate: string; category: string; recurring: "none" | "monthly" | "yearly" | "weekly"; paid: boolean; }
 export interface Goal { id: ID; name: string; target: number; saved: number; deadline: string; category: string; }
-export interface Profile { name: string; email: string; userType: "personal" | "employee" | "student" | "business" | "freelancer" | "family" | "hni"; currency: "INR"; }
+export interface Profile {
+  name: string;
+  email: string;
+  userType: "personal" | "employee" | "student" | "business" | "freelancer" | "family" | "hni";
+  currency: "INR";
+  onboardingCompleted?: boolean;
+  onboardingStep?: number;
+}
 
 export interface State {
   profile: Profile;
@@ -21,7 +28,7 @@ export interface State {
 }
 
 const emptyState: State = {
-  profile: { name: "User", email: "", userType: "personal", currency: "INR" },
+  profile: { name: "User", email: "", userType: "personal", currency: "INR", onboardingCompleted: false, onboardingStep: 1 },
   accounts: [], transactions: [], budgets: [], investments: [], loans: [], bills: [], goals: [],
 };
 
@@ -52,10 +59,68 @@ function reducer(state: State, action: Action): State {
     case "profile:update": return { ...state, profile: { ...state.profile, ...action.payload } };
     case "account:add": return { ...state, accounts: [action.payload, ...state.accounts] };
     case "account:update": return { ...state, accounts: upsert(state.accounts, action.payload) };
-    case "account:remove": return { ...state, accounts: state.accounts.filter(a => a.id !== action.payload) };
-    case "txn:add": return { ...state, transactions: [action.payload, ...state.transactions] };
-    case "txn:update": return { ...state, transactions: upsert(state.transactions, action.payload) };
-    case "txn:remove": return { ...state, transactions: state.transactions.filter(t => t.id !== action.payload) };
+    case "account:remove": return { 
+      ...state, 
+      accounts: state.accounts.filter(a => a.id !== action.payload),
+      transactions: state.transactions.filter(t => t.accountId !== action.payload)
+    };
+    case "txn:add": {
+      const txn = action.payload;
+      const accounts = state.accounts.map(acc => {
+        if (acc.id === txn.accountId) {
+          let diff = txn.amount;
+          if (txn.kind === "expense" || txn.kind === "transfer") {
+            diff = -diff;
+          }
+          return { ...acc, balance: acc.balance + diff };
+        }
+        return acc;
+      });
+      return { ...state, accounts, transactions: [txn, ...state.transactions] };
+    }
+    case "txn:update": {
+      const newTxn = action.payload;
+      const oldTxn = state.transactions.find(t => t.id === newTxn.id);
+      if (!oldTxn) return state;
+
+      const accounts = state.accounts.map(acc => {
+        let bal = acc.balance;
+        if (acc.id === oldTxn.accountId) {
+          // Revert old transaction effect
+          let diff = oldTxn.amount;
+          if (oldTxn.kind === "income") {
+            diff = -diff;
+          }
+          bal += diff;
+        }
+        if (acc.id === newTxn.accountId) {
+          // Apply new transaction effect
+          let diff = newTxn.amount;
+          if (newTxn.kind === "expense" || newTxn.kind === "transfer") {
+            diff = -diff;
+          }
+          bal += diff;
+        }
+        return { ...acc, balance: bal };
+      });
+      return { ...state, accounts, transactions: upsert(state.transactions, newTxn) };
+    }
+    case "txn:remove": {
+      const txnId = action.payload;
+      const txn = state.transactions.find(t => t.id === txnId);
+      if (!txn) return state;
+      const accounts = state.accounts.map(acc => {
+        if (acc.id === txn.accountId) {
+          let diff = txn.amount;
+          if (txn.kind === "income") {
+            diff = -diff;
+          }
+          return { ...acc, balance: acc.balance + diff };
+        }
+        return acc;
+      });
+      return { ...state, accounts, transactions: state.transactions.filter(t => t.id !== txnId) };
+    }
     case "budget:add": return { ...state, budgets: [action.payload, ...state.budgets] };
     case "budget:update": return { ...state, budgets: upsert(state.budgets, action.payload) };
     case "budget:remove": return { ...state, budgets: state.budgets.filter(b => b.id !== action.payload) };
@@ -74,7 +139,12 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-const Ctx = createContext<{ state: State; dispatch: React.Dispatch<Action>; loading: boolean } | null>(null);
+const Ctx = createContext<{
+  state: State;
+  dispatch: React.Dispatch<Action>;
+  loading: boolean;
+  syncStatus: "saved" | "saving" | "offline" | "failed";
+} | null>(null);
 
 function isEmpty(s: State) {
   return !s.accounts?.length && !s.transactions?.length && !s.budgets?.length && !s.investments?.length && !s.loans?.length && !s.bills?.length && !s.goals?.length;
@@ -84,8 +154,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [state, dispatch] = useReducer(reducer, emptyState);
   const [loading, setLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<"saved" | "saving" | "offline" | "failed">("saved");
+  
   const initialLoad = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCount = useRef(0);
 
   // Load from Supabase on user change
   useEffect(() => {
@@ -93,35 +166,125 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!user) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
-    supabase.from("user_finance_state").select("state").eq("user_id", user.id).maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        const raw = (data?.state ?? {}) as Partial<State>;
-        const loaded: State = { ...emptyState, ...raw, profile: { ...emptyState.profile, ...(raw.profile ?? {}), email: user.email ?? "" } };
-        // If first time and completely empty, initialize with clean empty state
-        if (isEmpty(loaded)) {
-          const seeded = { ...emptyState, profile: { ...emptyState.profile, email: user.email ?? "", name: user.user_metadata?.full_name ?? emptyState.profile.name } };
-          dispatch({ type: "hydrate", payload: seeded });
-        } else {
-          dispatch({ type: "hydrate", payload: loaded });
-        }
-        initialLoad.current = true;
-        setLoading(false);
-      });
+    
+    Promise.all([
+      supabase.from("user_finance_state").select("state").eq("user_id", user.id).maybeSingle(),
+      supabase.from("profiles").select("onboarding_completed, onboarding_step").eq("id", user.id).maybeSingle()
+    ]).then(([stateResult, profileResult]) => {
+      if (cancelled) return;
+      
+      const raw = (stateResult.data?.state ?? {}) as Partial<State>;
+      const pData = profileResult.data;
+      
+      const loadedProfile = {
+        ...emptyState.profile,
+        ...(raw.profile ?? {}),
+        email: user.email ?? "",
+        onboardingCompleted: pData?.onboarding_completed ?? false,
+        onboardingStep: pData?.onboarding_step ?? 1
+      };
+      
+      const loaded: State = {
+        ...emptyState,
+        ...raw,
+        profile: loadedProfile
+      };
+      
+      if (isEmpty(loaded)) {
+        const seeded = {
+          ...emptyState,
+          profile: {
+            ...loadedProfile,
+            name: user.user_metadata?.full_name ?? emptyState.profile.name
+          }
+        };
+        dispatch({ type: "hydrate", payload: seeded });
+      } else {
+        dispatch({ type: "hydrate", payload: loaded });
+      }
+      initialLoad.current = true;
+      setLoading(false);
+    });
+    
     return () => { cancelled = true; };
   }, [user?.id, authLoading]);
+
+  const triggerSave = () => {
+    if (!user || !initialLoad.current) return;
+    if (!navigator.onLine) {
+      setSyncStatus("offline");
+      return;
+    }
+
+    setSyncStatus("saving");
+
+    Promise.all([
+      supabase.from("user_finance_state").upsert({
+        user_id: user.id,
+        state: state as never,
+        updated_at: new Date().toISOString()
+      }),
+      supabase.from("profiles").update({
+        onboarding_completed: state.profile.onboardingCompleted ?? false,
+        onboarding_step: state.profile.onboardingStep ?? 1,
+        user_type: state.profile.userType,
+        currency: state.profile.currency,
+        full_name: state.profile.name
+      }).eq("id", user.id)
+    ]).then(([res1, res2]) => {
+      if (res1.error || res2.error) {
+        console.error("Save error:", res1.error, res2.error);
+        setSyncStatus("failed");
+        scheduleRetry();
+      } else {
+        setSyncStatus("saved");
+        retryCount.current = 0;
+      }
+    }).catch(err => {
+      console.error("Save catch error:", err);
+      setSyncStatus("failed");
+      scheduleRetry();
+    });
+  };
+
+  const scheduleRetry = () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      retryCount.current += 1;
+      triggerSave();
+    }, Math.min(10000, 2000 * retryCount.current)); // exponential backoff
+  };
+
+  // Online/Offline listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      if (syncStatus === "offline" || syncStatus === "failed") {
+        triggerSave();
+      }
+    };
+    const handleOffline = () => {
+      setSyncStatus("offline");
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncStatus]);
 
   // Save on state change (debounced)
   useEffect(() => {
     if (!user || !initialLoad.current) return;
+    setSyncStatus("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      supabase.from("user_finance_state").upsert({ user_id: user.id, state: state as never, updated_at: new Date().toISOString() }).then(() => {});
-    }, 700);
+      triggerSave();
+    }, 1000); // 1s debounce
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [state, user?.id]);
 
-  return <Ctx.Provider value={{ state, dispatch, loading }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ state, dispatch, loading, syncStatus }}>{children}</Ctx.Provider>;
 }
 
 // Re-export for setState-style loading indicator

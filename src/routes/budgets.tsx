@@ -99,7 +99,7 @@ function BudgetsPage() {
             </Card>
           );
         })}
-        {state.budgets.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">No budgets yet. Create your first envelope.</Card>}
+        {state.budgets.length === 0 && <Card className="card-luxe col-span-full p-12 text-center text-sm text-muted-foreground">Create your first budget</Card>}
       </div>
     </div>
   );

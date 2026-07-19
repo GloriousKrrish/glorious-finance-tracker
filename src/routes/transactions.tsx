@@ -133,7 +133,11 @@ function TxnPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 && <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">No transactions match your filters.</TableCell></TableRow>}
+              {state.transactions.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">No transactions recorded</TableCell></TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">No transactions match your filters.</TableCell></TableRow>
+              ) : null}
               {filtered.map(t => (
                 <TableRow key={t.id}>
                   <TableCell className="whitespace-nowrap text-sm">{formatDate(t.date)}</TableCell>
