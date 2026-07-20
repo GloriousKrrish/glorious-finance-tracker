@@ -171,15 +171,19 @@ function Dashboard() {
             {goals.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">No active goals.</div>
             ) : (
-              goals.slice(0, 3).map(g => {
-                const p = Math.min(100, (g.saved / g.target) * 100);
+              SelectorEngine.getGoals(state).slice(0, 3).map(g => {
+                const { progress, goalHealth } = g.metrics;
+                const healthColor = goalHealth === "Excellent" ? "text-success" : goalHealth === "Good" ? "text-primary" : goalHealth === "Warning" ? "text-warning" : "text-destructive";
                 return (
                   <div key={g.id}>
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{g.name}</span>
-                      <span className="font-numeric text-xs text-muted-foreground">{formatINR(g.saved, { compact: true })} / {formatINR(g.target, { compact: true })}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-semibold uppercase ${healthColor}`}>{goalHealth}</span>
+                        <span className="font-numeric text-xs text-muted-foreground">{formatINR(g.saved, { compact: true })} / {formatINR(g.target, { compact: true })}</span>
+                      </div>
                     </div>
-                    <Progress value={p} className="mt-2 h-1.5" />
+                    <Progress value={progress} className={`mt-2 h-1.5 ${g.metrics.isCompleted ? "[&>div]:bg-success" : ""}`} />
                   </div>
                 );
               })

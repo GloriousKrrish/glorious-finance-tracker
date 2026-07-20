@@ -90,62 +90,278 @@ export class CalculationEngine {
   }
 
   // --- BUDGET CALCULATIONS ---
+  public static getBudgetCycleBounds(budget: Budget, refDate: Date = new Date()): { start: Date; end: Date } {
+    const d = new Date(refDate);
+    let start = new Date(d);
+    let end = new Date(d);
+
+    switch (budget.period) {
+      case "daily":
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case "weekly": {
+        const day = start.getDay();
+        const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Align to Monday
+        start.setDate(diff);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "biweekly": {
+        if (budget.startDate) {
+          const anchor = new Date(budget.startDate);
+          anchor.setHours(0, 0, 0, 0);
+          const msPerCycle = 14 * 24 * 60 * 60 * 1000;
+          const diffMs = start.getTime() - anchor.getTime();
+          const cycles = Math.floor(diffMs / msPerCycle);
+          start = new Date(anchor.getTime() + cycles * msPerCycle);
+          end = new Date(start.getTime() + msPerCycle - 1);
+        } else {
+          const day = start.getDay();
+          const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+          start.setDate(diff);
+          start.setHours(0, 0, 0, 0);
+          end = new Date(start);
+          end.setDate(start.getDate() + 13);
+          end.setHours(23, 59, 59, 999);
+        }
+        break;
+      }
+      case "quarterly": {
+        const month = start.getMonth();
+        const quarterStartMonth = Math.floor(month / 3) * 3;
+        start.setMonth(quarterStartMonth, 1);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setMonth(start.getMonth() + 3, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "yearly":
+        start.setMonth(0, 1);
+        start.setHours(0, 0, 0, 0);
+        end.setMonth(11, 31);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case "custom":
+        if (budget.startDate) {
+          start = new Date(budget.startDate);
+          start.setHours(0, 0, 0, 0);
+        } else {
+          start.setMonth(0, 1);
+          start.setHours(0, 0, 0, 0);
+        }
+        if (budget.endDate) {
+          end = new Date(budget.endDate);
+          end.setHours(23, 59, 59, 999);
+        } else {
+          end = new Date(start);
+          end.setMonth(start.getMonth() + 1);
+          end.setHours(23, 59, 59, 999);
+        }
+        break;
+      case "monthly":
+      default:
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setMonth(start.getMonth() + 1, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+    }
+
+    return { start, end };
+  }
+
+  // --- BUDGET CALCULATIONS ---
   public static calculateBudget(budget: Budget, transactions: Transaction[]): {
     spent: number;
     remaining: number;
     overspending: number;
     utilization: number;
+    remainingDays: number;
+    totalDays: number;
+    daysElapsed: number;
+    dailySpendingRate: number;
+    projectedSpent: number;
+    averageSpending: number;
+    budgetHealth: "Excellent" | "Good" | "Warning" | "Critical";
+    budgetTrend: "decreasing" | "stable" | "increasing";
+    budgetVariance: number;
+    forecast: number;
+    cycleStart: string;
+    cycleEnd: string;
   } {
-    const now = new Date();
+    const bounds = this.getBudgetCycleBounds(budget);
+    
+    // Spent matches expense transactions in this category within bounds
     const spent = transactions
       .filter((t) => t.kind === "expense" && t.category === budget.category)
       .filter((t) => {
         const d = new Date(t.date);
-        if (budget.period === "weekly") {
-          const diffTime = Math.abs(now.getTime() - d.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          return diffDays <= 7;
-        }
-        if (budget.period === "yearly") {
-          return d.getFullYear() === now.getFullYear();
-        }
-        // default monthly
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        return d >= bounds.start && d <= bounds.end;
       })
       .reduce((s, t) => s + t.amount, 0);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const endCopy = new Date(bounds.end);
+    endCopy.setHours(0, 0, 0, 0);
+
+    const totalDiff = bounds.end.getTime() - bounds.start.getTime();
+    const totalDays = Math.max(1, Math.ceil(totalDiff / (1000 * 60 * 60 * 24)));
+
+    const diffTime = endCopy.getTime() - today.getTime();
+    const remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+    const daysElapsed = Math.max(1, totalDays - remainingDays);
+
+    const dailySpendingRate = spent / daysElapsed;
+    const projectedSpent = dailySpendingRate * totalDays;
+    const averageSpending = dailySpendingRate;
+
+    const remaining = Math.max(0, budget.limit - spent);
+    const overspending = Math.max(0, spent - budget.limit);
+    const utilization = budget.limit > 0 ? (spent / budget.limit) * 100 : 0;
+
+    let budgetHealth: "Excellent" | "Good" | "Warning" | "Critical" = "Excellent";
+    if (utilization > 100) {
+      budgetHealth = "Critical";
+    } else if (utilization > 80) {
+      budgetHealth = "Warning";
+    } else if (utilization > 50) {
+      budgetHealth = "Good";
+    }
+
+    const timeProgress = (daysElapsed / totalDays) * 100;
+    const budgetTrend = (utilization - timeProgress) > 10 
+      ? "increasing" 
+      : (timeProgress - utilization) > 10 
+        ? "decreasing" 
+        : "stable";
+
+    const budgetVariance = budget.limit - spent;
+    const forecast = projectedSpent;
+
     return {
       spent,
-      remaining: Math.max(0, budget.limit - spent),
-      overspending: Math.max(0, spent - budget.limit),
-      utilization: budget.limit > 0 ? (spent / budget.limit) * 100 : 0,
+      remaining,
+      overspending,
+      utilization,
+      remainingDays,
+      totalDays,
+      daysElapsed,
+      dailySpendingRate,
+      projectedSpent,
+      averageSpending,
+      budgetHealth,
+      budgetTrend,
+      budgetVariance,
+      forecast,
+      cycleStart: bounds.start.toISOString().slice(0, 10),
+      cycleEnd: bounds.end.toISOString().slice(0, 10),
     };
   }
 
   // --- GOAL CALCULATIONS ---
-  public static calculateGoal(goal: Goal, transactions: Transaction[]): {
-    progress: number;
-    fundingGap: number;
-    estimatedCompletionMonths: number;
-  } {
+  public static calculateGoal(goal: Goal, transactions: Transaction[]) {
     const progress = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
     const fundingGap = Math.max(0, goal.target - goal.saved);
+    const isCompleted = goal.saved >= goal.target;
 
-    // Compute contribution velocity from the last 90 days to estimate completion
+    // Deadline analysis
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const deadline = new Date(goal.deadline);
+    deadline.setHours(0, 0, 0, 0);
+    const daysRemaining = Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+    const monthsRemaining = Math.max(0, daysRemaining / 30.44);
+    const isOverdue = !isCompleted && deadline < today;
+
+    // Contribution history — match both legacy merchant format and linked entity transactions
+    const allContributions = transactions.filter(
+      (t) =>
+        (t.kind === "expense" && t.merchant === `Goal: ${goal.name}`) ||
+        (t.linkedEntityId === goal.id && t.linkedEntityType === "goal")
+    );
+
+    const contributionCount = allContributions.length;
+    const totalContributed = allContributions.reduce((s, t) => s + t.amount, 0);
+
+    // Average monthly contribution rate (last 90 days)
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    const contributions = transactions
-      .filter((t) => t.kind === "expense" && t.merchant === `Goal: ${goal.name}`)
-      .filter((t) => new Date(t.date) >= ninetyDaysAgo);
-    
-    const totalContributed = contributions.reduce((s, t) => s + t.amount, 0);
-    const monthlyRate = totalContributed / 3; // 3 months average
-    const estimatedCompletionMonths = monthlyRate > 0 ? fundingGap / monthlyRate : Infinity;
+    const recentContributions = allContributions.filter((t) => new Date(t.date) >= ninetyDaysAgo);
+    const recentTotal = recentContributions.reduce((s, t) => s + t.amount, 0);
+    const averageMonthlyContribution = recentTotal / 3;
+
+    // Required monthly contribution to meet deadline
+    const requiredMonthlyContribution = monthsRemaining > 0 ? fundingGap / monthsRemaining : fundingGap;
+
+    // Estimated completion
+    const estimatedCompletionMonths = averageMonthlyContribution > 0 ? fundingGap / averageMonthlyContribution : Infinity;
+
+    // Goal health heuristic
+    let goalHealth: "Excellent" | "Good" | "Warning" | "Critical" = "Excellent";
+    if (isCompleted) {
+      goalHealth = "Excellent";
+    } else if (isOverdue) {
+      goalHealth = "Critical";
+    } else if (monthsRemaining > 0 && averageMonthlyContribution > 0) {
+      const ratio = requiredMonthlyContribution / averageMonthlyContribution;
+      if (ratio <= 1) goalHealth = "Excellent";
+      else if (ratio <= 1.5) goalHealth = "Good";
+      else if (ratio <= 3) goalHealth = "Warning";
+      else goalHealth = "Critical";
+    } else if (progress >= 75) {
+      goalHealth = "Good";
+    } else if (progress >= 25) {
+      goalHealth = "Warning";
+    } else {
+      goalHealth = "Critical";
+    }
+
+    // Goal trend — compare recent 30-day rate vs prior 30-day rate
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const last30 = allContributions
+      .filter((t) => new Date(t.date) >= thirtyDaysAgo)
+      .reduce((s, t) => s + t.amount, 0);
+    const prev30 = allContributions
+      .filter((t) => { const d = new Date(t.date); return d >= sixtyDaysAgo && d < thirtyDaysAgo; })
+      .reduce((s, t) => s + t.amount, 0);
+
+    let goalTrend: "increasing" | "decreasing" | "stable" = "stable";
+    if (last30 > prev30 * 1.1) goalTrend = "increasing";
+    else if (last30 < prev30 * 0.9 && prev30 > 0) goalTrend = "decreasing";
+
+    // Forecast — projected saved amount at deadline
+    const goalForecast = averageMonthlyContribution > 0
+      ? Math.min(goal.target, goal.saved + averageMonthlyContribution * monthsRemaining)
+      : goal.saved;
 
     return {
       progress: Math.min(100, Math.max(0, progress)),
       fundingGap,
-      estimatedCompletionMonths: isFinite(estimatedCompletionMonths) ? Math.round(estimatedCompletionMonths * 10) / 10 : -1,
+      estimatedCompletionMonths: isFinite(estimatedCompletionMonths)
+        ? Math.round(estimatedCompletionMonths * 10) / 10
+        : -1,
+      requiredMonthlyContribution,
+      averageMonthlyContribution,
+      goalHealth,
+      goalTrend,
+      goalForecast,
+      contributionCount,
+      totalContributed,
+      isOverdue,
+      isCompleted,
+      daysRemaining,
+      monthsRemaining: Math.round(monthsRemaining * 10) / 10,
     };
   }
 
@@ -232,14 +448,9 @@ export class CalculationEngine {
     }
 
     // 3. Budgets overrun impact: -10 per exceeded budget
-    const currentMonthExpenses = new Map<string, number>();
-    currentMonthTx
-      .filter((t) => t.kind === "expense")
-      .forEach((t) => currentMonthExpenses.set(t.category, (currentMonthExpenses.get(t.category) || 0) + t.amount));
-
     state.budgets.forEach((b) => {
-      const spent = currentMonthExpenses.get(b.category) || 0;
-      if (spent > b.limit) {
+      const metrics = CalculationEngine.calculateBudget(b, state.transactions);
+      if (metrics.spent > b.limit) {
         score -= 10;
       }
     });

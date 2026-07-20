@@ -121,7 +121,16 @@ export class RulesEngine {
         break;
       }
       case "goal.deleted": {
-        nextState.goals = nextState.goals.filter((g) => g.id !== event.payload);
+        const id = event.payload;
+        nextState.goals = nextState.goals.filter((g) => g.id !== id);
+        // Orphan linked transactions
+        nextState.transactions = nextState.transactions.map((t) => {
+          if (t.linkedEntityId === id && t.linkedEntityType === "goal") {
+            const { linkedEntityId, linkedEntityType, ...rest } = t;
+            return rest as any;
+          }
+          return t;
+        });
         break;
       }
 
@@ -167,16 +176,22 @@ export class RulesEngine {
         const goal = nextState.goals.find((g) => g.id === goalId);
         if (goal) {
           goal.saved += amount;
-          // Generate automated transaction
+          // Auto-complete goal
+          if (goal.saved >= goal.target) {
+            goal.status = "completed";
+          }
+          // Generate linked transaction
           const txn = {
             id: uid(),
             date: date || new Date().toISOString().slice(0, 10),
             amount,
-            kind: "expense" as const,
-            category: "Investments",
+            kind: "goal_contribution" as const,
+            category: "Savings",
             accountId,
             merchant: `Goal: ${goal.name}`,
-            note: `Contribution to goal milestone: ${goal.name}`
+            note: `Contribution to goal: ${goal.name}`,
+            linkedEntityId: goal.id,
+            linkedEntityType: "goal" as const,
           };
           nextState.transactions.unshift(txn);
           this.applyTxnEffect(nextState, txn, 1);

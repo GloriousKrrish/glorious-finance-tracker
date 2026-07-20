@@ -14,34 +14,24 @@ export function NotificationsPopover() {
     const list: Array<{ id: string; type: "budget" | "bill" | "goal" | "loan"; title: string; message: string; severity: "info" | "warning" | "error"; date: string }> = [];
 
     // 1. Budgets Exceeded Check
-    const now = new Date();
-    const currentMonthExpenses = new Map<string, number>();
-    transactions
-      .filter(t => t.kind === "expense")
-      .forEach(t => {
-        const d = new Date(t.date);
-        if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
-          currentMonthExpenses.set(t.category, (currentMonthExpenses.get(t.category) || 0) + t.amount);
-        }
-      });
-
-    budgets.forEach(b => {
-      const spent = currentMonthExpenses.get(b.category) || 0;
+    SelectorEngine.getBudgets(state).forEach(b => {
+      const { spent, utilization, overspending } = b.metrics;
+      const threshold = b.alertThreshold !== undefined ? b.alertThreshold : 80;
       if (spent > b.limit) {
         list.push({
           id: `budget-${b.id}`,
           type: "budget",
           title: "Budget Exceeded",
-          message: `Your budget for ${b.category} (${formatINR(b.limit)}) has been exceeded by ${formatINR(spent - b.limit)}.`,
+          message: `Your ${b.period} budget for ${b.category} (${formatINR(b.limit)}) has been exceeded by ${formatINR(overspending)}.`,
           severity: "error",
           date: todayISOString(),
         });
-      } else if (spent > b.limit * 0.8) {
+      } else if (utilization > threshold) {
         list.push({
           id: `budget-warn-${b.id}`,
           type: "budget",
           title: "Budget Warning",
-          message: `You've used ${((spent / b.limit) * 100).toFixed(0)}% of your ${b.category} budget.`,
+          message: `You've used ${utilization.toFixed(0)}% of your ${b.period} ${b.category} budget.`,
           severity: "warning",
           date: todayISOString(),
         });
@@ -80,9 +70,9 @@ export function NotificationsPopover() {
     });
 
     // 3. Goal milestones Check
-    goals.forEach(g => {
-      const pct = g.target ? (g.saved / g.target) * 100 : 0;
-      if (pct >= 100) {
+    SelectorEngine.getGoals(state).forEach(g => {
+      const { progress, isCompleted, isOverdue, goalHealth } = g.metrics;
+      if (isCompleted) {
         list.push({
           id: `goal-done-${g.id}`,
           type: "goal",
@@ -91,13 +81,31 @@ export function NotificationsPopover() {
           severity: "info",
           date: todayISOString(),
         });
-      } else if (pct >= 75) {
+      } else if (isOverdue) {
+        list.push({
+          id: `goal-overdue-${g.id}`,
+          type: "goal",
+          title: "Goal Overdue",
+          message: `Goal "${g.name}" has passed its deadline. ${formatINR(g.metrics.fundingGap)} still needed.`,
+          severity: "error",
+          date: todayISOString(),
+        });
+      } else if (progress >= 75) {
         list.push({
           id: `goal-near-${g.id}`,
           type: "goal",
           title: "Goal Milestone Reached",
-          message: `Goal "${g.name}" is ${pct.toFixed(0)}% funded (${formatINR(g.saved)} / ${formatINR(g.target)}).`,
+          message: `Goal "${g.name}" is ${progress.toFixed(0)}% funded (${formatINR(g.saved)} / ${formatINR(g.target)}).`,
           severity: "info",
+          date: todayISOString(),
+        });
+      } else if (goalHealth === "Critical") {
+        list.push({
+          id: `goal-at-risk-${g.id}`,
+          type: "goal",
+          title: "Goal At Risk",
+          message: `Goal "${g.name}" needs significantly higher contributions to meet its deadline.`,
+          severity: "warning",
           date: todayISOString(),
         });
       }

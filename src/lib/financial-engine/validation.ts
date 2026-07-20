@@ -165,6 +165,35 @@ export class ValidationEngine {
         break;
       }
 
+      case "goal.created":
+      case "goal.updated": {
+        const goal = event.payload;
+        if (!goal.name || goal.name.trim() === "") {
+          return { isValid: false, error: "Goal name is required." };
+        }
+        if (goal.target <= 0) {
+          return { isValid: false, error: "Target amount must be positive." };
+        }
+        if (!goal.deadline || isNaN(Date.parse(goal.deadline))) {
+          return { isValid: false, error: "A valid deadline date is required." };
+        }
+        // Duplicate name check
+        const dupGoal = state.goals.find(
+          (g) => g.id !== goal.id && g.name.toLowerCase() === goal.name.toLowerCase()
+        );
+        if (dupGoal) {
+          return { isValid: false, error: `A goal named "${goal.name}" already exists.` };
+        }
+        // Linked account validation
+        if (goal.linkedAccountId) {
+          const linkedAcc = state.accounts.find((a) => a.id === goal.linkedAccountId);
+          if (!linkedAcc) {
+            return { isValid: false, error: "Linked account does not exist." };
+          }
+        }
+        break;
+      }
+
       case "goal.contribution": {
         const { goalId, amount, accountId } = event.payload;
         if (amount <= 0) {
@@ -173,6 +202,12 @@ export class ValidationEngine {
         const goal = state.goals.find((g) => g.id === goalId);
         if (!goal) {
           return { isValid: false, error: "Target goal does not exist." };
+        }
+        if (goal.status === "completed") {
+          return { isValid: false, error: "This goal has already been completed." };
+        }
+        if (goal.status === "paused") {
+          return { isValid: false, error: "Cannot contribute to a paused goal." };
         }
         const acc = state.accounts.find((a) => a.id === accountId);
         if (!acc) {
@@ -204,6 +239,55 @@ export class ValidationEngine {
         if (acc.balance < bill.amount) {
           return { isValid: false, error: `Insufficient funds in ${acc.name} to pay bill.` };
         }
+        break;
+      }
+
+      case "budget.created":
+      case "budget.updated": {
+        const budget = event.payload;
+
+        // Limit Validation
+        if (budget.limit <= 0) {
+          return { isValid: false, error: "Budget limit must be positive." };
+        }
+
+        // Category Validation
+        if (!budget.category || budget.category.trim() === "") {
+          return { isValid: false, error: "Budget category is required." };
+        }
+
+        // Period Validation
+        const validPeriods = ["daily", "weekly", "biweekly", "monthly", "quarterly", "yearly", "custom"];
+        if (!validPeriods.includes(budget.period)) {
+          return { isValid: false, error: `Invalid budget period. Supported periods: ${validPeriods.join(", ")}.` };
+        }
+
+        // Custom Date Range Validation
+        if (budget.period === "custom") {
+          if (!budget.startDate || isNaN(Date.parse(budget.startDate))) {
+            return { isValid: false, error: "Custom period budgets require a valid start date." };
+          }
+          if (!budget.endDate || isNaN(Date.parse(budget.endDate))) {
+            return { isValid: false, error: "Custom period budgets require a valid end date." };
+          }
+          if (new Date(budget.startDate) > new Date(budget.endDate)) {
+            return { isValid: false, error: "Start date cannot be after end date." };
+          }
+        }
+
+        // Alert Threshold Validation
+        if (budget.alertThreshold !== undefined && (budget.alertThreshold < 0 || budget.alertThreshold > 100)) {
+          return { isValid: false, error: "Alert threshold percentage must be between 0 and 100." };
+        }
+
+        // Duplicate Check (category + period)
+        const duplicate = state.budgets.find(
+          (b) => b.id !== budget.id && b.category === budget.category && b.period === budget.period
+        );
+        if (duplicate) {
+          return { isValid: false, error: `A ${budget.period} budget for '${budget.category}' already exists.` };
+        }
+
         break;
       }
     }

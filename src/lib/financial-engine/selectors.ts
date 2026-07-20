@@ -307,12 +307,123 @@ export class SelectorEngine {
     return this.cachedBudgets.get(budget.id);
   }
 
+  public static getBudgets(state: State): (Budget & { metrics: ReturnType<typeof CalculationEngine.calculateBudget> })[] {
+    this.checkAndClearCache(state);
+    return state.budgets.map((b) => ({
+      ...b,
+      metrics: this.getBudgetMetrics(state, b),
+    }));
+  }
+
+  public static getActiveBudgets(state: State) {
+    return this.getBudgets(state);
+  }
+
+  public static getBudgetsSpentSummary(state: State): number {
+    return this.getBudgets(state).reduce((sum, b) => sum + b.metrics.spent, 0);
+  }
+
+  public static getBudgetsRemainingSummary(state: State): number {
+    return this.getBudgets(state).reduce((sum, b) => sum + b.metrics.remaining, 0);
+  }
+
+  public static getBudgetsOverspendingSummary(state: State): number {
+    return this.getBudgets(state).reduce((sum, b) => sum + b.metrics.overspending, 0);
+  }
+
+  public static getBudgetsForecastSummary(state: State): number {
+    return this.getBudgets(state).reduce((sum, b) => sum + b.metrics.forecast, 0);
+  }
+
+  public static getBudgetsByCategory(state: State, category: string) {
+    return this.getBudgets(state).filter((b) => b.category === category);
+  }
+
+  public static getBudgetsByPeriod(state: State, period: Budget["period"]) {
+    return this.getBudgets(state).filter((b) => b.period === period);
+  }
+
+  public static getBudgetsHealthSummary(state: State): {
+    Excellent: number;
+    Good: number;
+    Warning: number;
+    Critical: number;
+  } {
+    const summary = { Excellent: 0, Good: 0, Warning: 0, Critical: 0 };
+    this.getBudgets(state).forEach((b) => {
+      summary[b.metrics.budgetHealth] = (summary[b.metrics.budgetHealth] || 0) + 1;
+    });
+    return summary;
+  }
+
   public static getGoalMetrics(state: State, goal: Goal) {
     this.checkAndClearCache(state);
     if (!this.cachedGoals.has(goal.id)) {
       this.cachedGoals.set(goal.id, CalculationEngine.calculateGoal(goal, state.transactions));
     }
-    return this.cachedGoals.get(goal.id);
+    return this.cachedGoals.get(goal.id)!;
+  }
+
+  public static getGoals(state: State) {
+    this.checkAndClearCache(state);
+    return state.goals.map((g) => ({
+      ...g,
+      metrics: this.getGoalMetrics(state, g),
+    }));
+  }
+
+  public static getActiveGoals(state: State) {
+    return this.getGoals(state).filter(
+      (g) => !g.metrics.isCompleted && (g.status === undefined || g.status === "active")
+    );
+  }
+
+  public static getCompletedGoals(state: State) {
+    return this.getGoals(state).filter((g) => g.metrics.isCompleted || g.status === "completed");
+  }
+
+  public static getOverdueGoals(state: State) {
+    return this.getGoals(state).filter((g) => g.metrics.isOverdue);
+  }
+
+  public static getPriorityGoals(state: State) {
+    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    return this.getActiveGoals(state).sort(
+      (a, b) => (priorityOrder[a.priority || "medium"] ?? 2) - (priorityOrder[b.priority || "medium"] ?? 2)
+    );
+  }
+
+  public static getGoalsSavingsSummary(state: State): number {
+    return state.goals.reduce((sum, g) => sum + g.saved, 0);
+  }
+
+  public static getGoalsFundingGapSummary(state: State): number {
+    return this.getGoals(state).reduce((sum, g) => sum + g.metrics.fundingGap, 0);
+  }
+
+  public static getGoalsForecastSummary(state: State): number {
+    return this.getGoals(state).reduce((sum, g) => sum + g.metrics.goalForecast, 0);
+  }
+
+  public static getGoalsHealthSummary(state: State): {
+    Excellent: number;
+    Good: number;
+    Warning: number;
+    Critical: number;
+  } {
+    const summary = { Excellent: 0, Good: 0, Warning: 0, Critical: 0 };
+    this.getGoals(state).forEach((g) => {
+      summary[g.metrics.goalHealth] = (summary[g.metrics.goalHealth] || 0) + 1;
+    });
+    return summary;
+  }
+
+  public static getGoalContributions(state: State, goalId: string) {
+    return state.transactions.filter(
+      (t) =>
+        (t.linkedEntityId === goalId && t.linkedEntityType === "goal") ||
+        (t.kind === "goal_contribution" && t.linkedEntityId === goalId)
+    );
   }
 
   public static getInvestmentMetrics(state: State) {

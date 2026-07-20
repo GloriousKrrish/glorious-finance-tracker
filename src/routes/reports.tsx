@@ -4,6 +4,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useStore } from "@/lib/store";
 import { formatINR, formatDate } from "@/lib/format";
+import { SelectorEngine } from "@/lib/financial-engine";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,11 +46,14 @@ function ReportsPage() {
     const expense = txns.filter(t => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
     const byCat: Record<string, number> = {};
     txns.filter(t => t.kind === "expense").forEach(t => { byCat[t.category] = (byCat[t.category] ?? 0) + t.amount; });
-    const budgetStatus = state.budgets.map(b => ({ ...b, spent: byCat[b.category] ?? 0 }));
+    const budgetStatus = state.budgets.map(b => {
+      const metrics = SelectorEngine.getBudgetMetrics(state, b);
+      return { ...b, spent: metrics.spent };
+    });
     // Rough tax proxy — informational only
     const gross = income * 12; // annualized rough estimate over the period assumption not applied
     return { income, expense, net: income - expense, byCat, budgetStatus, gross };
-  }, [txns, state.budgets]);
+  }, [txns, state.budgets, state]);
 
   const generatePdf = () => {
     const doc = new jsPDF({ unit: "pt", format: "a4" });

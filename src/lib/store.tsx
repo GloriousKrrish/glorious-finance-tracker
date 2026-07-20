@@ -49,11 +49,32 @@ export interface Transaction {
   linkedEntityType?: "loan" | "goal" | "bill" | "investment";
   metadata?: Record<string, any>;
 }
-export interface Budget { id: ID; category: string; limit: number; period: "monthly" | "weekly" | "yearly"; }
+export interface Budget {
+  id: ID;
+  category: string;
+  limit: number;
+  period: "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly" | "custom";
+  startDate?: string;
+  endDate?: string;
+  alertThreshold?: number;
+  carryForward?: boolean;
+}
 export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other"; invested: number; current: number; units?: number; }
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; accountId?: ID; }
 export interface Bill { id: ID; name: string; amount: number; dueDate: string; category: string; recurring: "none" | "monthly" | "yearly" | "weekly"; paid: boolean; }
-export interface Goal { id: ID; name: string; target: number; saved: number; deadline: string; category: string; }
+export interface Goal {
+  id: ID;
+  name: string;
+  target: number;
+  saved: number;
+  deadline: string;
+  category: string;
+  goalType?: "emergency_fund" | "vacation" | "vehicle" | "home" | "education" | "retirement" | "investment" | "debt_payoff" | "custom";
+  priority?: "low" | "medium" | "high" | "critical";
+  linkedAccountId?: ID;
+  status?: "active" | "completed" | "overdue" | "paused";
+  notes?: string;
+}
 export interface Profile {
   name: string;
   email: string;
