@@ -13,8 +13,42 @@ import {
 export type ID = string;
 
 export interface Account { id: ID; name: string; type: "bank" | "cash" | "credit_card" | "wallet" | "investment"; balance: number; institution?: string; }
-export type TxnKind = "income" | "expense" | "transfer";
-export interface Transaction { id: ID; date: string; amount: number; kind: TxnKind; category: string; accountId: ID; toAccountId?: ID; merchant?: string; note?: string; }
+export type TxnKind =
+  | "income"
+  | "expense"
+  | "transfer"
+  | "loan_payment"
+  | "investment_purchase"
+  | "investment_sale"
+  | "goal_contribution"
+  | "bill_payment"
+  | "refund"
+  | "interest"
+  | "dividend"
+  | "adjustment";
+
+export interface Transaction {
+  id: ID;
+  date: string;
+  amount: number;
+  kind: TxnKind;
+  category: string;
+  accountId: ID;
+  toAccountId?: ID;
+  merchant?: string;
+  note?: string;
+  
+  // Ledger Fields
+  currency?: string;
+  reference?: string;
+  tags?: string[];
+  createdTime?: string;
+  updatedTime?: string;
+  status?: "pending" | "cleared" | "failed" | "reversed";
+  linkedEntityId?: ID;
+  linkedEntityType?: "loan" | "goal" | "bill" | "investment";
+  metadata?: Record<string, any>;
+}
 export interface Budget { id: ID; category: string; limit: number; period: "monthly" | "weekly" | "yearly"; }
 export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other"; invested: number; current: number; units?: number; }
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; }

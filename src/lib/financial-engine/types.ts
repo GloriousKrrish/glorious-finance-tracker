@@ -12,6 +12,10 @@ export type FinancialEventType =
   | "transaction.created"
   | "transaction.updated"
   | "transaction.deleted"
+  | "transaction.reversed"
+  | "transaction.imported"
+  | "transaction.synced"
+  | "transaction.recurring.generated"
   // Budgets
   | "budget.created"
   | "budget.updated"

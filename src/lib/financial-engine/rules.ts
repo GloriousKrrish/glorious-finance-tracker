@@ -209,13 +209,26 @@ export class RulesEngine {
 
   // Factor is +1 for applying transaction, -1 for reverting
   private static applyTxnEffect(state: State, txn: any, factor: number): void {
+    const increaseTypes = ["income", "investment_sale", "refund", "interest", "dividend"];
+    const decreaseTypes = ["expense", "transfer", "loan_payment", "investment_purchase", "goal_contribution", "bill_payment", "adjustment"];
+
     const acc = state.accounts.find((a) => a.id === txn.accountId);
     if (acc) {
+      const isDecrease = decreaseTypes.includes(txn.kind);
       let delta = txn.amount * factor;
-      if (txn.kind === "expense" || txn.kind === "transfer") {
+      if (isDecrease) {
         delta = -delta;
       }
       acc.balance += delta;
+    }
+
+    // Sync Transfer Destination Account
+    if (txn.kind === "transfer" && txn.toAccountId) {
+      const destAcc = state.accounts.find((a) => a.id === txn.toAccountId);
+      if (destAcc) {
+        // Destination is credited (+) when transaction is created/applied (factor = 1)
+        destAcc.balance += txn.amount * factor;
+      }
     }
 
     // Sync Loan if category is EMI

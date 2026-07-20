@@ -22,13 +22,72 @@ export class ValidationEngine {
       case "transaction.created":
       case "transaction.updated": {
         const txn = event.payload;
+
+        // Duplicate ID check (for creation)
+        if (event.type === "transaction.created") {
+          const isDuplicateId = state.transactions.some((t) => t.id === txn.id);
+          if (isDuplicateId) {
+            return { isValid: false, error: "Duplicate transaction ID detected." };
+          }
+        }
+
+        // Amount Validation
         if (txn.amount <= 0) {
           return { isValid: false, error: "Transaction amount must be positive." };
         }
+
+        // Date Validation
+        if (!txn.date || isNaN(Date.parse(txn.date))) {
+          return { isValid: false, error: "Invalid or corrupt transaction date." };
+        }
+
+        // Account Validation
         const acc = state.accounts.find((a) => a.id === txn.accountId);
         if (!acc) {
           return { isValid: false, error: "Linked account does not exist." };
         }
+
+        // Transfer Validation
+        if (txn.kind === "transfer") {
+          if (!txn.toAccountId) {
+            return { isValid: false, error: "Destination account is required for transfers." };
+          }
+          if (txn.accountId === txn.toAccountId) {
+            return { isValid: false, error: "Source and destination accounts cannot be the same." };
+          }
+          const toAcc = state.accounts.find((a) => a.id === txn.toAccountId);
+          if (!toAcc) {
+            return { isValid: false, error: "Destination account does not exist." };
+          }
+        }
+
+        // Currency Validation
+        if (txn.currency && txn.currency.length !== 3) {
+          return { isValid: false, error: "Invalid currency ISO code." };
+        }
+
+        // Linked Entity Validation
+        if (txn.linkedEntityId && txn.linkedEntityType) {
+          let entityExists = false;
+          switch (txn.linkedEntityType) {
+            case "loan":
+              entityExists = state.loans.some((l) => l.id === txn.linkedEntityId);
+              break;
+            case "goal":
+              entityExists = state.goals.some((g) => g.id === txn.linkedEntityId);
+              break;
+            case "bill":
+              entityExists = state.bills.some((b) => b.id === txn.linkedEntityId);
+              break;
+            case "investment":
+              entityExists = state.investments.some((i) => i.id === txn.linkedEntityId);
+              break;
+          }
+          if (!entityExists) {
+            return { isValid: false, error: `Linked ${txn.linkedEntityType} entity does not exist.` };
+          }
+        }
+
         // If it's an expense and would cause account overdraft on cash/wallets (where negative balance makes no sense)
         if (txn.kind === "expense" && (acc.type === "cash" || acc.type === "wallet") && acc.balance < txn.amount) {
           return { isValid: false, error: `Insufficient funds in ${acc.name} (${acc.type}).` };
