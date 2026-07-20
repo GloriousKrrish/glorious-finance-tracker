@@ -1,12 +1,12 @@
 import type { FinancialEvent } from "./types";
 import { toast } from "sonner";
+import { EventEngine } from "./events";
 
 export class AutomationEngine {
   private static registeredWorkflows: Map<string, (event: FinancialEvent) => void> = new Map();
 
   public static initialize(): void {
     // Listen to all events in the system
-    const { EventEngine } = require("./events");
     EventEngine.subscribe("*", (event: FinancialEvent) => {
       this.runTriggers(event);
     });

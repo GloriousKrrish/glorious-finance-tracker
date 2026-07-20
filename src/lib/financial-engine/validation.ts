@@ -1,4 +1,5 @@
 import type { State, FinancialEvent, ValidationResult } from "./types";
+import { CalculationEngine } from "./calculations";
 
 export class ValidationEngine {
   public static validate(state: State, event: FinancialEvent): ValidationResult {
@@ -70,9 +71,25 @@ export class ValidationEngine {
         if (txn.linkedEntityId && txn.linkedEntityType) {
           let entityExists = false;
           switch (txn.linkedEntityType) {
-            case "loan":
-              entityExists = state.loans.some((l) => l.id === txn.linkedEntityId);
+            case "loan": {
+              const loan = state.loans.find((l) => l.id === txn.linkedEntityId);
+              if (loan) {
+                entityExists = true;
+
+                // Overpayment check:
+                const otherTxns = state.transactions.filter(
+                  (t) => t.linkedEntityId === loan.id && t.id !== txn.id
+                );
+                const metrics = CalculationEngine.calculateLoan(loan, otherTxns);
+                if (txn.amount > metrics.outstandingBalance) {
+                  return {
+                    isValid: false,
+                    error: `Repayment (₹${txn.amount}) exceeds the remaining loan outstanding balance (₹${metrics.outstandingBalance}).`,
+                  };
+                }
+              }
               break;
+            }
             case "goal":
               entityExists = state.goals.some((g) => g.id === txn.linkedEntityId);
               break;
@@ -95,8 +112,18 @@ export class ValidationEngine {
         break;
       }
 
-      case "loan.created": {
+      case "loan.created":
+      case "loan.updated": {
         const loan = event.payload;
+        if (!loan.name.trim()) {
+          return { isValid: false, error: "Loan name cannot be empty." };
+        }
+        if (event.type === "loan.created") {
+          const isDuplicateId = state.loans.some((l) => l.id === loan.id);
+          if (isDuplicateId) {
+            return { isValid: false, error: "Duplicate loan ID detected." };
+          }
+        }
         if (loan.principal <= 0) {
           return { isValid: false, error: "Loan principal must be greater than zero." };
         }
@@ -105,6 +132,12 @@ export class ValidationEngine {
         }
         if (loan.tenureMonths <= 0) {
           return { isValid: false, error: "Loan tenure must be at least 1 month." };
+        }
+        if (loan.accountId) {
+          const accExists = state.accounts.some((a) => a.id === loan.accountId);
+          if (!accExists) {
+            return { isValid: false, error: "Linked payment account does not exist." };
+          }
         }
         break;
       }
@@ -118,8 +151,9 @@ export class ValidationEngine {
         if (!loan) {
           return { isValid: false, error: "Target loan does not exist." };
         }
-        if (amount > loan.outstanding) {
-          return { isValid: false, error: `Payment (₹${amount}) cannot exceed outstanding loan balance (₹${loan.outstanding}).` };
+        const metrics = CalculationEngine.calculateLoan(loan, state.transactions);
+        if (amount > metrics.outstandingBalance) {
+          return { isValid: false, error: `Payment (₹${amount}) cannot exceed outstanding loan balance (₹${metrics.outstandingBalance}).` };
         }
         const acc = state.accounts.find((a) => a.id === accountId);
         if (!acc) {

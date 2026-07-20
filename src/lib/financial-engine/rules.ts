@@ -98,7 +98,15 @@ export class RulesEngine {
         break;
       }
       case "loan.deleted": {
-        nextState.loans = nextState.loans.filter((l) => l.id !== event.payload);
+        const id = event.payload;
+        nextState.loans = nextState.loans.filter((l) => l.id !== id);
+        nextState.transactions = nextState.transactions.map((t) => {
+          if (t.linkedEntityId === id && t.linkedEntityType === "loan") {
+            const { linkedEntityId, linkedEntityType, ...rest } = t;
+            return rest as any;
+          }
+          return t;
+        });
         break;
       }
 
@@ -231,17 +239,7 @@ export class RulesEngine {
       }
     }
 
-    // Sync Loan if category is EMI
-    if (txn.category === "EMI") {
-      const loanName = txn.merchant?.replace(" EMI", "") || "";
-      const loan = state.loans.find((l) => l.name === loanName);
-      if (loan) {
-        const monthlyRate = (loan.rate / 12) / 100;
-        const interestPaid = loan.outstanding * monthlyRate;
-        const principalPaid = Math.max(0, txn.amount - interestPaid);
-        loan.outstanding = Math.max(0, loan.outstanding - (principalPaid * factor));
-      }
-    }
+
 
     // Sync Bill if matching name/category and amount
     if (factor === 1) {

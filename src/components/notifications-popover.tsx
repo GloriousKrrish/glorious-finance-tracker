@@ -4,10 +4,11 @@ import { Bell, BellOff } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { formatINR, formatDate } from "@/lib/format";
+import { SelectorEngine } from "@/lib/financial-engine";
 
 export function NotificationsPopover() {
   const { state } = useStore();
-  const { transactions, budgets, bills, goals, accounts, loans, investments } = state;
+  const { transactions, budgets, bills, goals } = state;
 
   const notifications = useMemo(() => {
     const list: Array<{ id: string; type: "budget" | "bill" | "goal" | "loan"; title: string; message: string; severity: "info" | "warning" | "error"; date: string }> = [];
@@ -103,9 +104,10 @@ export function NotificationsPopover() {
     });
 
     // 4. Debt-to-Asset check
-    const assets = accounts.filter(a => a.balance > 0).reduce((s: number, a) => s + a.balance, 0)
-      + investments.reduce((s: number, i) => s + i.current, 0);
-    const totalLoans = loans.reduce((s: number, l) => s + l.outstanding, 0);
+    const totalLoans = SelectorEngine.getLoansOutstandingSummary(state);
+    const dashboard = SelectorEngine.getDashboard(state);
+    const assets = dashboard.totalAssets;
+
     if (assets > 0 && totalLoans > 0) {
       const ratio = totalLoans / assets;
       if (ratio > 0.5) {
@@ -120,8 +122,43 @@ export function NotificationsPopover() {
       }
     }
 
+    // 5. Loan upcoming & overdue check
+    const activeLoans = SelectorEngine.getActiveLoans(state);
+    const today = new Date();
+    activeLoans.forEach(l => {
+      const repayments = SelectorEngine.getLoanRepayments(state, l.id);
+      const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const paidThisMonth = repayments.some(t => new Date(t.date) >= startOfCurrentMonth);
+
+      if (!paidThisMonth) {
+        const nextDue = new Date(l.metrics.nextDueDate);
+        const diffTime = nextDue.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (today.getDate() > 5) {
+          list.push({
+            id: `loan-overdue-${l.id}`,
+            type: "loan",
+            title: "Overdue EMI Alert",
+            message: `EMI of ${formatINR(l.emi)} for "${l.name}" was due on 5th of this month.`,
+            severity: "error",
+            date: todayISOString(),
+          });
+        } else if (diffDays >= 0 && diffDays <= 5) {
+          list.push({
+            id: `loan-due-${l.id}`,
+            type: "loan",
+            title: "Upcoming EMI Due",
+            message: `EMI of ${formatINR(l.emi)} for "${l.name}" is due on ${formatDate(l.metrics.nextDueDate)}.`,
+            severity: "warning",
+            date: l.metrics.nextDueDate,
+          });
+        }
+      }
+    });
+
     return list;
-  }, [transactions, budgets, bills, goals, accounts, loans, investments]);
+  }, [state, transactions, budgets, bills, goals]);
 
   return (
     <Popover>

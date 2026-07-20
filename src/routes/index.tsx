@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { formatINR } from "@/lib/format";
+import { SelectorEngine } from "@/lib/financial-engine";
 import { PageHeader } from "@/components/page-header";
 import { ChecklistWidget } from "@/components/checklist-widget";
 import { Card } from "@/components/ui/card";
@@ -22,70 +23,14 @@ function Dashboard() {
   const { accounts, transactions, investments, loans, goals, budgets } = state;
 
   const totals = useMemo(() => {
-    const assets = accounts.filter(a => a.balance > 0).reduce((s, a) => s + a.balance, 0)
-      + investments.reduce((s, i) => s + i.current, 0);
-    const liabilities = accounts.filter(a => a.balance < 0).reduce((s, a) => s - a.balance, 0)
-      + loans.reduce((s, l) => s + l.outstanding, 0);
-    const netWorth = assets - liabilities;
-    const now = new Date();
-    const monthTx = transactions.filter(t => {
-      const d = new Date(t.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-    const income = monthTx.filter(t => t.kind === "income").reduce((s, t) => s + t.amount, 0);
-    const expense = monthTx.filter(t => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
-    const savingsRate = income ? Math.max(0, ((income - expense) / income) * 100) : 0;
+    const db = SelectorEngine.getDashboard(state);
     const invReturn = investments.reduce((s, i) => s + (i.current - i.invested), 0);
-    return { assets, liabilities, netWorth, income, expense, savingsRate, invReturn };
-  }, [accounts, transactions, investments, loans]);
+    return { assets: db.totalAssets, liabilities: db.totalLiabilities, netWorth: db.netWorth, income: db.monthlyIncome, expense: db.monthlyExpense, savingsRate: db.savingsRate, invReturn };
+  }, [state, investments]);
 
   const healthScore = useMemo(() => {
-    let score = 75; // baseline
-
-    // 1. Savings Rate impact: up to +15 or -10
-    if (totals.savingsRate > 35) score += 15;
-    else if (totals.savingsRate > 20) score += 10;
-    else if (totals.savingsRate > 10) score += 5;
-    else if (totals.savingsRate === 0) score -= 10;
-
-    // 2. Debt-to-Asset Ratio impact: up to +10 or -20
-    const totalLoans = loans.reduce((s, l) => s + l.outstanding, 0);
-    if (totals.assets > 0 && totalLoans > 0) {
-      const ratio = totalLoans / totals.assets;
-      if (ratio <= 0.1) score += 10;
-      else if (ratio <= 0.3) score += 5;
-      else if (ratio > 0.5) score -= 20;
-    } else if (totalLoans === 0) {
-      score += 10;
-    }
-
-    // 3. Budgets overrun impact: -10 per exceeded budget
-    const now = new Date();
-    const currentMonthExpenses = new Map<string, number>();
-    transactions
-      .filter(t => t.kind === "expense")
-      .forEach(t => {
-        const d = new Date(t.date);
-        if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
-          currentMonthExpenses.set(t.category, (currentMonthExpenses.get(t.category) || 0) + t.amount);
-        }
-      });
-
-    budgets.forEach(b => {
-      const spent = currentMonthExpenses.get(b.category) || 0;
-      if (spent > b.limit) {
-        score -= 10;
-      }
-    });
-
-    // 4. Goals progress impact: +5 per goal that is >50% funded
-    goals.forEach(g => {
-      const pct = g.target ? (g.saved / g.target) * 100 : 0;
-      if (pct >= 100) score += 5;
-      else if (pct >= 50) score += 3;
-    });
-
-    return Math.max(10, Math.min(100, score));
-  }, [totals.savingsRate, totals.assets, loans, transactions, budgets, goals]);
+    return SelectorEngine.getDashboard(state).healthScore;
+  }, [state]);
 
   const trend = useMemo(() => {
     const buckets: Record<string, { m: string; income: number; expense: number }> = {};
@@ -122,9 +67,9 @@ function Dashboard() {
       <ChecklistWidget />
       <div className="grid gap-4 p-6 md:grid-cols-2 md:gap-6 md:p-10 lg:grid-cols-5">
         <KpiCard label="Net Worth" value={formatINR(totals.netWorth, { compact: true })} sub={`Assets ${formatINR(totals.assets, { compact: true })}`} icon={<Sparkles className="h-4 w-4 text-gold" />} accent="gold" />
-        <KpiCard label="Cash & Bank" value={formatINR(accounts.filter(a => a.type !== "credit_card").reduce((s, a) => s + a.balance, 0), { compact: true })} sub={`${accounts.length} accounts`} icon={<Wallet className="h-4 w-4" />} />
-        <KpiCard label="Investments" value={formatINR(investments.reduce((s, i) => s + i.current, 0), { compact: true })} sub={`${totals.invReturn >= 0 ? "+" : ""}${formatINR(totals.invReturn, { compact: true })} unrealised`} icon={<TrendingUp className="h-4 w-4" />} trend={totals.invReturn >= 0 ? "up" : "down"} />
-        <KpiCard label="Loans Outstanding" value={formatINR(loans.reduce((s, l) => s + l.outstanding, 0), { compact: true })} sub={`${loans.length} active`} icon={<Landmark className="h-4 w-4" />} />
+        <KpiCard label="Cash & Bank" value={formatINR(SelectorEngine.getDashboard(state).cashBalance, { compact: true })} sub={`${accounts.length} accounts`} icon={<Wallet className="h-4 w-4" />} />
+        <KpiCard label="Investments" value={formatINR(SelectorEngine.getDashboard(state).investmentBalance, { compact: true })} sub={`${totals.invReturn >= 0 ? "+" : ""}${formatINR(totals.invReturn, { compact: true })} unrealised`} icon={<TrendingUp className="h-4 w-4" />} trend={totals.invReturn >= 0 ? "up" : "down"} />
+        <KpiCard label="Loans Outstanding" value={formatINR(SelectorEngine.getLoansOutstandingSummary(state), { compact: true })} sub={`${SelectorEngine.getActiveLoans(state).length} active`} icon={<Landmark className="h-4 w-4" />} />
         <KpiCard label="Health Score" value={`${healthScore}/100`} sub={healthScore >= 80 ? "Excellent standing" : healthScore >= 60 ? "Good standing" : "Needs attention"} icon={<ShieldCheck className={`h-4 w-4 ${healthScore >= 80 ? "text-success" : healthScore >= 60 ? "text-warning" : "text-destructive"}`} />} />
       </div>
 

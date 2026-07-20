@@ -10,39 +10,82 @@ export class CalculationEngine {
     remainingTenure: number;
     progressPercent: number;
     nextDueDate: string;
+    principalPaid: number;
+    interestPaid: number;
+    remainingInterest: number;
+    remainingPrincipal: number;
+    loanHealth: "Excellent" | "Good" | "Overdue" | "Closed";
   } {
     const monthlyRate = (loan.rate / 12) / 100;
-    const emi = loan.emi || (loan.principal * monthlyRate * Math.pow(1 + monthlyRate, loan.tenureMonths)) / 
-                            (Math.pow(1 + monthlyRate, loan.tenureMonths) - 1);
+    const emi = loan.emi || (monthlyRate > 0 
+      ? (loan.principal * monthlyRate * Math.pow(1 + monthlyRate, loan.tenureMonths)) / (Math.pow(1 + monthlyRate, loan.tenureMonths) - 1)
+      : loan.principal / loan.tenureMonths);
+
     const totalPayable = emi * loan.tenureMonths;
     const totalInterest = Math.max(0, totalPayable - loan.principal);
-    const progressPercent = loan.principal > 0 ? ((loan.principal - loan.outstanding) / loan.principal) * 100 : 0;
 
-    // Remaining tenure based on outstanding balance & EMI interest coverage
+    // Repayments from ledger
+    const repayments = transactions
+      .filter((t) => t.linkedEntityId === loan.id || (t.category === "EMI" && t.merchant?.toLowerCase().includes(loan.name.toLowerCase())))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let outstanding = loan.principal;
+    let interestPaid = 0;
+    let principalPaid = 0;
+
+    for (const txn of repayments) {
+      const interestPortion = outstanding * monthlyRate;
+      const principalPortion = Math.max(0, txn.amount - interestPortion);
+      interestPaid += interestPortion;
+      principalPaid += principalPortion;
+      outstanding = Math.max(0, outstanding - principalPortion);
+    }
+
+    const progressPercent = loan.principal > 0 ? (principalPaid / loan.principal) * 100 : 0;
+
     let remainingTenure = loan.tenureMonths;
-    if (loan.outstanding > 0 && emi > loan.outstanding * monthlyRate) {
+    if (outstanding > 0 && emi > outstanding * monthlyRate) {
       remainingTenure = Math.round(
-        Math.log(emi / (emi - loan.outstanding * monthlyRate)) / Math.log(1 + monthlyRate)
+        Math.log(emi / (emi - outstanding * monthlyRate)) / Math.log(1 + monthlyRate)
       );
-    } else if (loan.outstanding === 0) {
+    } else if (outstanding === 0) {
       remainingTenure = 0;
     }
 
-    // Next due date assumption: 5th of the next month (or current month if not yet paid)
     const today = new Date();
     const nextDue = new Date(today.getFullYear(), today.getMonth(), 5);
     if (nextDue < today) {
       nextDue.setMonth(nextDue.getMonth() + 1);
     }
 
+    // Heuristic loan health
+    let loanHealth: "Excellent" | "Good" | "Overdue" | "Closed" = "Good";
+    if (outstanding <= 0) {
+      loanHealth = "Closed";
+    } else {
+      // Check if we missed the due date of current month (after 5th) and there are no payments this month
+      const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const paidThisMonth = repayments.some((t) => new Date(t.date) >= startOfCurrentMonth);
+      if (today.getDate() > 5 && !paidThisMonth) {
+        loanHealth = "Overdue";
+      } else if (progressPercent > 50) {
+        loanHealth = "Excellent";
+      }
+    }
+
     return {
       monthlyEmi: Math.round(emi * 100) / 100,
       totalInterest: Math.round(totalInterest * 100) / 100,
       totalPayable: Math.round(totalPayable * 100) / 100,
-      outstandingBalance: loan.outstanding,
+      outstandingBalance: Math.round(outstanding * 100) / 100,
       remainingTenure: Math.max(0, remainingTenure),
       progressPercent: Math.min(100, Math.max(0, progressPercent)),
       nextDueDate: nextDue.toISOString().slice(0, 10),
+      principalPaid: Math.round(principalPaid * 100) / 100,
+      interestPaid: Math.round(interestPaid * 100) / 100,
+      remainingInterest: Math.round(Math.max(0, totalInterest - interestPaid) * 100) / 100,
+      remainingPrincipal: Math.round(outstanding * 100) / 100,
+      loanHealth,
     };
   }
 
@@ -144,7 +187,10 @@ export class CalculationEngine {
       .reduce((sum, a) => sum + a.balance, 0);
 
     const investmentBalance = state.investments.reduce((sum, i) => sum + i.current, 0);
-    const loanOutstanding = state.loans.reduce((sum, l) => sum + l.outstanding, 0);
+    const loanOutstanding = state.loans.reduce((sum, l) => {
+      const metrics = CalculationEngine.calculateLoan(l, state.transactions);
+      return sum + metrics.outstandingBalance;
+    }, 0);
     
     // Credit card balances count as negative assets (liabilities)
     const ccLiabilities = state.accounts

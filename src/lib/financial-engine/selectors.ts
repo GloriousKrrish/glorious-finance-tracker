@@ -1,4 +1,4 @@
-import type { State, Loan, Budget, Goal } from "./types";
+import type { State, Loan, Budget, Goal, Transaction, Investment, Account } from "./types";
 import { CalculationEngine } from "./calculations";
 
 export class SelectorEngine {
@@ -20,6 +20,16 @@ export class SelectorEngine {
   private static cachedLinkedTxns: Map<string, any> = new Map();
   private static cachedSearchTxns: Map<string, any> = new Map();
 
+  // Loan Specific Caches
+  private static cachedAllLoans: any[] | null = null;
+  private static cachedActiveLoans: any[] | null = null;
+  private static cachedClosedLoans: any[] | null = null;
+  private static cachedLoansOutstandingSummary: number | null = null;
+  private static cachedLoansEmiSummary: number | null = null;
+  private static cachedDebtRatio: number | null = null;
+  private static cachedUpcomingPayments: any[] | null = null;
+  private static cachedInterestSummary: { paid: number; remaining: number; total: number } | null = null;
+
   private static checkAndClearCache(state: State): void {
     if (this.lastState !== state) {
       this.lastState = state;
@@ -38,6 +48,16 @@ export class SelectorEngine {
       this.cachedLatestTxns = null;
       this.cachedLinkedTxns.clear();
       this.cachedSearchTxns.clear();
+
+      // Clear Loan Caches
+      this.cachedAllLoans = null;
+      this.cachedActiveLoans = null;
+      this.cachedClosedLoans = null;
+      this.cachedLoansOutstandingSummary = null;
+      this.cachedLoansEmiSummary = null;
+      this.cachedDebtRatio = null;
+      this.cachedUpcomingPayments = null;
+      this.cachedInterestSummary = null;
     }
   }
 
@@ -165,6 +185,102 @@ export class SelectorEngine {
       this.cachedSearchTxns.set(key, results);
     }
     return this.cachedSearchTxns.get(key);
+  }
+
+  // --- LOAN SELECTORS ---
+  public static getLoans(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedAllLoans === null) {
+      this.cachedAllLoans = state.loans.map((l) => {
+        const metrics = this.getLoanMetrics(state, l);
+        return {
+          ...l,
+          metrics,
+          outstanding: metrics.outstandingBalance,
+          emi: metrics.monthlyEmi,
+        };
+      });
+    }
+    return this.cachedAllLoans;
+  }
+
+  public static getActiveLoans(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedActiveLoans === null) {
+      this.cachedActiveLoans = this.getLoans(state).filter((l) => l.outstanding > 0);
+    }
+    return this.cachedActiveLoans;
+  }
+
+  public static getClosedLoans(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedClosedLoans === null) {
+      this.cachedClosedLoans = this.getLoans(state).filter((l) => l.outstanding <= 0);
+    }
+    return this.cachedClosedLoans;
+  }
+
+  public static getLoansOutstandingSummary(state: State): number {
+    this.checkAndClearCache(state);
+    if (this.cachedLoansOutstandingSummary === null) {
+      this.cachedLoansOutstandingSummary = this.getLoans(state).reduce((sum, l) => sum + l.outstanding, 0);
+    }
+    return this.cachedLoansOutstandingSummary;
+  }
+
+  public static getLoansEmiSummary(state: State): number {
+    this.checkAndClearCache(state);
+    if (this.cachedLoansEmiSummary === null) {
+      this.cachedLoansEmiSummary = this.getActiveLoans(state).reduce((sum, l) => sum + l.emi, 0);
+    }
+    return this.cachedLoansEmiSummary;
+  }
+
+  public static getDebtRatio(state: State): number {
+    this.checkAndClearCache(state);
+    if (this.cachedDebtRatio === null) {
+      const dashboard = this.getDashboard(state);
+      this.cachedDebtRatio = dashboard.totalAssets > 0 ? (dashboard.totalLiabilities / dashboard.totalAssets) * 100 : 0;
+    }
+    return this.cachedDebtRatio;
+  }
+
+  public static getUpcomingLoanPayments(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedUpcomingPayments === null) {
+      this.cachedUpcomingPayments = this.getActiveLoans(state).map((l) => ({
+        loanId: l.id,
+        name: l.name,
+        amount: l.emi,
+        dueDate: l.metrics.nextDueDate,
+        type: l.type,
+      })).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    }
+    return this.cachedUpcomingPayments;
+  }
+
+  public static getLoanInterestSummary(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedInterestSummary === null) {
+      let paid = 0;
+      let remaining = 0;
+      let total = 0;
+      this.getLoans(state).forEach((l) => {
+        paid += l.metrics.interestPaid;
+        remaining += l.metrics.remainingInterest;
+        total += l.metrics.totalInterest;
+      });
+      this.cachedInterestSummary = { paid, remaining, total };
+    }
+    return this.cachedInterestSummary;
+  }
+
+  public static getLoanRepayments(state: State, loanId: string) {
+    const loan = state.loans.find((l) => l.id === loanId);
+    if (!loan) return [];
+    return state.transactions
+      .filter((t) => t.linkedEntityId === loanId || (t.category === "EMI" && t.merchant?.toLowerCase().includes(loan.name.toLowerCase())))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
   public static getDashboard(state: State) {
