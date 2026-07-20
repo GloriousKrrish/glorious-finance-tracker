@@ -1,0 +1,259 @@
+import type { State, FinancialEvent } from "./types";
+import { uid } from "../store";
+
+export class RulesEngine {
+  public static apply(state: State, event: FinancialEvent): State {
+    const nextState = JSON.parse(JSON.stringify(state)) as State;
+
+    switch (event.type) {
+      case "account.created": {
+        const acc = event.payload;
+        nextState.accounts.unshift(acc);
+        break;
+      }
+      case "account.updated": {
+        const acc = event.payload;
+        const idx = nextState.accounts.findIndex((a) => a.id === acc.id);
+        if (idx !== -1) nextState.accounts[idx] = acc;
+        break;
+      }
+      case "account.deleted": {
+        const id = event.payload;
+        nextState.accounts = nextState.accounts.filter((a) => a.id !== id);
+        // Cascade delete: remove/orphan transactions on this account
+        nextState.transactions = nextState.transactions.filter((t) => t.accountId !== id);
+        break;
+      }
+
+      case "transaction.created": {
+        const txn = event.payload;
+        nextState.transactions.unshift(txn);
+        this.applyTxnEffect(nextState, txn, 1);
+        break;
+      }
+      case "transaction.updated": {
+        const txn = event.payload;
+        const oldTxn = nextState.transactions.find((t) => t.id === txn.id);
+        if (oldTxn) {
+          // Revert old transaction effect
+          this.applyTxnEffect(nextState, oldTxn, -1);
+          // Apply new transaction effect
+          const idx = nextState.transactions.findIndex((t) => t.id === txn.id);
+          nextState.transactions[idx] = txn;
+          this.applyTxnEffect(nextState, txn, 1);
+        }
+        break;
+      }
+      case "transaction.deleted": {
+        const id = event.payload;
+        const txn = nextState.transactions.find((t) => t.id === id);
+        if (txn) {
+          this.applyTxnEffect(nextState, txn, -1);
+          nextState.transactions = nextState.transactions.filter((t) => t.id !== id);
+        }
+        break;
+      }
+
+      case "budget.created": {
+        nextState.budgets.unshift(event.payload);
+        break;
+      }
+      case "budget.updated": {
+        const b = event.payload;
+        const idx = nextState.budgets.findIndex((x) => x.id === b.id);
+        if (idx !== -1) nextState.budgets[idx] = b;
+        break;
+      }
+      case "budget.deleted": {
+        nextState.budgets = nextState.budgets.filter((x) => x.id !== event.payload);
+        break;
+      }
+
+      case "investment.created": {
+        nextState.investments.unshift(event.payload);
+        this.syncInvestmentAccount(nextState);
+        break;
+      }
+      case "investment.updated": {
+        const inv = event.payload;
+        const idx = nextState.investments.findIndex((i) => i.id === inv.id);
+        if (idx !== -1) nextState.investments[idx] = inv;
+        this.syncInvestmentAccount(nextState);
+        break;
+      }
+      case "investment.deleted": {
+        nextState.investments = nextState.investments.filter((i) => i.id !== event.payload);
+        this.syncInvestmentAccount(nextState);
+        break;
+      }
+
+      case "loan.created": {
+        nextState.loans.unshift(event.payload);
+        break;
+      }
+      case "loan.updated": {
+        const loan = event.payload;
+        const idx = nextState.loans.findIndex((l) => l.id === loan.id);
+        if (idx !== -1) nextState.loans[idx] = loan;
+        break;
+      }
+      case "loan.deleted": {
+        nextState.loans = nextState.loans.filter((l) => l.id !== event.payload);
+        break;
+      }
+
+      case "goal.created": {
+        nextState.goals.unshift(event.payload);
+        break;
+      }
+      case "goal.updated": {
+        const goal = event.payload;
+        const idx = nextState.goals.findIndex((g) => g.id === goal.id);
+        if (idx !== -1) nextState.goals[idx] = goal;
+        break;
+      }
+      case "goal.deleted": {
+        nextState.goals = nextState.goals.filter((g) => g.id !== event.payload);
+        break;
+      }
+
+      case "bill.created": {
+        nextState.bills.unshift(event.payload);
+        break;
+      }
+      case "bill.updated": {
+        const b = event.payload;
+        const idx = nextState.bills.findIndex((x) => x.id === b.id);
+        if (idx !== -1) nextState.bills[idx] = b;
+        break;
+      }
+      case "bill.deleted": {
+        nextState.bills = nextState.bills.filter((x) => x.id !== event.payload);
+        break;
+      }
+
+      case "bill.paid": {
+        const { billId, accountId, date } = event.payload;
+        const bill = nextState.bills.find((b) => b.id === billId);
+        if (bill) {
+          bill.paid = true;
+          // Generate automated transaction
+          const txn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount: bill.amount,
+            kind: "expense" as const,
+            category: bill.category,
+            accountId,
+            merchant: bill.name,
+            note: `Auto-recorded payment for bill: ${bill.name}`
+          };
+          nextState.transactions.unshift(txn);
+          this.applyTxnEffect(nextState, txn, 1);
+        }
+        break;
+      }
+
+      case "goal.contribution": {
+        const { goalId, amount, accountId, date } = event.payload;
+        const goal = nextState.goals.find((g) => g.id === goalId);
+        if (goal) {
+          goal.saved += amount;
+          // Generate automated transaction
+          const txn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount,
+            kind: "expense" as const,
+            category: "Investments",
+            accountId,
+            merchant: `Goal: ${goal.name}`,
+            note: `Contribution to goal milestone: ${goal.name}`
+          };
+          nextState.transactions.unshift(txn);
+          this.applyTxnEffect(nextState, txn, 1);
+        }
+        break;
+      }
+
+      case "loan.payment": {
+        const { loanId, amount, accountId, date } = event.payload;
+        const loan = nextState.loans.find((l) => l.id === loanId);
+        if (loan) {
+          // Amortize EMI payment: outstanding reduced by principal component
+          const monthlyRate = (loan.rate / 12) / 100;
+          const interestPaid = loan.outstanding * monthlyRate;
+          const principalPaid = Math.max(0, amount - interestPaid);
+          loan.outstanding = Math.max(0, loan.outstanding - principalPaid);
+
+          // Generate automated transaction
+          const txn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount,
+            kind: "expense" as const,
+            category: "EMI",
+            accountId,
+            merchant: `${loan.name} EMI`,
+            note: `Repayment for ${loan.name}`
+          };
+          nextState.transactions.unshift(txn);
+          this.applyTxnEffect(nextState, txn, 1);
+        }
+        break;
+      }
+    }
+
+    return nextState;
+  }
+
+  // Factor is +1 for applying transaction, -1 for reverting
+  private static applyTxnEffect(state: State, txn: any, factor: number): void {
+    const acc = state.accounts.find((a) => a.id === txn.accountId);
+    if (acc) {
+      let delta = txn.amount * factor;
+      if (txn.kind === "expense" || txn.kind === "transfer") {
+        delta = -delta;
+      }
+      acc.balance += delta;
+    }
+
+    // Sync Loan if category is EMI
+    if (txn.category === "EMI") {
+      const loanName = txn.merchant?.replace(" EMI", "") || "";
+      const loan = state.loans.find((l) => l.name === loanName);
+      if (loan) {
+        const monthlyRate = (loan.rate / 12) / 100;
+        const interestPaid = loan.outstanding * monthlyRate;
+        const principalPaid = Math.max(0, txn.amount - interestPaid);
+        loan.outstanding = Math.max(0, loan.outstanding - (principalPaid * factor));
+      }
+    }
+
+    // Sync Bill if matching name/category and amount
+    if (factor === 1) {
+      const bill = state.bills.find(
+        (b) => !b.paid && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
+      );
+      if (bill) {
+        bill.paid = true;
+      }
+    } else {
+      const bill = state.bills.find(
+        (b) => b.paid && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
+      );
+      if (bill) {
+        bill.paid = false;
+      }
+    }
+  }
+
+  // Automatically sync total investment holdings to the first Investment account balance
+  private static syncInvestmentAccount(state: State): void {
+    const totalCurrentVal = state.investments.reduce((sum, inv) => sum + inv.current, 0);
+    const invAccount = state.accounts.find((a) => a.type === "investment");
+    if (invAccount) {
+      invAccount.balance = totalCurrentVal;
+    }
+  }
+}

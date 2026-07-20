@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useStore, uid, type Account } from "@/lib/store";
+import { SelectorEngine } from "@/lib/financial-engine";
 import { formatINR } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { AddButton, EditIconButton, DeleteIconButton, FormDialogHeader, FormFooter } from "@/components/crud";
@@ -51,7 +52,7 @@ function AccountForm({ initial, onSubmit, onCancel }: { initial: Account; onSubm
 function AccountsPage() {
   const { state, dispatch } = useStore();
   const [openAdd, setOpenAdd] = useState(false);
-  const total = state.accounts.reduce((s, a) => s + a.balance, 0);
+  const total = SelectorEngine.getTotalAccountBalance(state);
 
   return (
     <div>

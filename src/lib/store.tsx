@@ -1,12 +1,20 @@
-import { createContext, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { toast } from "sonner";
+import {
+  SynchronizationEngine,
+  EventEngine,
+  ValidationEngine,
+  AutomationEngine,
+  type FinancialEventType
+} from "@/lib/financial-engine";
 
 export type ID = string;
 
 export interface Account { id: ID; name: string; type: "bank" | "cash" | "credit_card" | "wallet" | "investment"; balance: number; institution?: string; }
 export type TxnKind = "income" | "expense" | "transfer";
-export interface Transaction { id: ID; date: string; amount: number; kind: TxnKind; category: string; accountId: ID; merchant?: string; note?: string; }
+export interface Transaction { id: ID; date: string; amount: number; kind: TxnKind; category: string; accountId: ID; toAccountId?: ID; merchant?: string; note?: string; }
 export interface Budget { id: ID; category: string; limit: number; period: "monthly" | "weekly" | "yearly"; }
 export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other"; invested: number; current: number; units?: number; }
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; }
@@ -43,7 +51,10 @@ type Action =
   | { type: "inv:add"; payload: Investment } | { type: "inv:update"; payload: Investment } | { type: "inv:remove"; payload: ID }
   | { type: "loan:add"; payload: Loan } | { type: "loan:update"; payload: Loan } | { type: "loan:remove"; payload: ID }
   | { type: "bill:add"; payload: Bill } | { type: "bill:update"; payload: Bill } | { type: "bill:remove"; payload: ID }
-  | { type: "goal:add"; payload: Goal } | { type: "goal:update"; payload: Goal } | { type: "goal:remove"; payload: ID };
+  | { type: "goal:add"; payload: Goal } | { type: "goal:update"; payload: Goal } | { type: "goal:remove"; payload: ID }
+  | { type: "goal:contribute"; payload: { goalId: ID; amount: number; accountId: ID; date?: string } }
+  | { type: "bill:pay"; payload: { billId: ID; accountId: ID; date?: string } }
+  | { type: "loan:pay"; payload: { loanId: ID; amount: number; accountId: ID; date?: string } };
 
 function upsert<T extends { id: ID }>(arr: T[], item: T) {
   const i = arr.findIndex((x) => x.id === item.id);
@@ -52,90 +63,48 @@ function upsert<T extends { id: ID }>(arr: T[], item: T) {
 }
 
 function reducer(state: State, action: Action): State {
+  let eventType: FinancialEventType | null = null;
+  let payload: any = null;
+
+  switch (action.type) {
+    case "account:add": eventType = "account.created"; payload = action.payload; break;
+    case "account:update": eventType = "account.updated"; payload = action.payload; break;
+    case "account:remove": eventType = "account.deleted"; payload = action.payload; break;
+    case "txn:add": eventType = "transaction.created"; payload = action.payload; break;
+    case "txn:update": eventType = "transaction.updated"; payload = action.payload; break;
+    case "txn:remove": eventType = "transaction.deleted"; payload = action.payload; break;
+    case "budget:add": eventType = "budget.created"; payload = action.payload; break;
+    case "budget:update": eventType = "budget.updated"; payload = action.payload; break;
+    case "budget:remove": eventType = "budget.deleted"; payload = action.payload; break;
+    case "inv:add": eventType = "investment.created"; payload = action.payload; break;
+    case "inv:update": eventType = "investment.updated"; payload = action.payload; break;
+    case "inv:remove": eventType = "investment.deleted"; payload = action.payload; break;
+    case "loan:add": eventType = "loan.created"; payload = action.payload; break;
+    case "loan:update": eventType = "loan.updated"; payload = action.payload; break;
+    case "loan:remove": eventType = "loan.deleted"; payload = action.payload; break;
+    case "bill:add": eventType = "bill.created"; payload = action.payload; break;
+    case "bill:update": eventType = "bill.updated"; payload = action.payload; break;
+    case "bill:remove": eventType = "bill.deleted"; payload = action.payload; break;
+    case "goal:add": eventType = "goal.created"; payload = action.payload; break;
+    case "goal:update": eventType = "goal.updated"; payload = action.payload; break;
+    case "goal:remove": eventType = "goal.deleted"; payload = action.payload; break;
+    case "goal:contribute": eventType = "goal.contribution"; payload = action.payload; break;
+    case "bill:pay": eventType = "bill.paid"; payload = action.payload; break;
+    case "loan:pay": eventType = "loan.payment"; payload = action.payload; break;
+  }
+
+  if (eventType) {
+    const event = EventEngine.createEvent(eventType, payload);
+    const { nextState } = SynchronizationEngine.processEvent(state, event);
+    return nextState;
+  }
+
   switch (action.type) {
     case "hydrate": return action.payload;
     case "reset": return emptyState;
     case "loadDemo": return emptyState;
     case "profile:update": return { ...state, profile: { ...state.profile, ...action.payload } };
-    case "account:add": return { ...state, accounts: [action.payload, ...state.accounts] };
-    case "account:update": return { ...state, accounts: upsert(state.accounts, action.payload) };
-    case "account:remove": return { 
-      ...state, 
-      accounts: state.accounts.filter(a => a.id !== action.payload),
-      transactions: state.transactions.filter(t => t.accountId !== action.payload)
-    };
-    case "txn:add": {
-      const txn = action.payload;
-      const accounts = state.accounts.map(acc => {
-        if (acc.id === txn.accountId) {
-          let diff = txn.amount;
-          if (txn.kind === "expense" || txn.kind === "transfer") {
-            diff = -diff;
-          }
-          return { ...acc, balance: acc.balance + diff };
-        }
-        return acc;
-      });
-      return { ...state, accounts, transactions: [txn, ...state.transactions] };
-    }
-    case "txn:update": {
-      const newTxn = action.payload;
-      const oldTxn = state.transactions.find(t => t.id === newTxn.id);
-      if (!oldTxn) return state;
-
-      const accounts = state.accounts.map(acc => {
-        let bal = acc.balance;
-        if (acc.id === oldTxn.accountId) {
-          // Revert old transaction effect
-          let diff = oldTxn.amount;
-          if (oldTxn.kind === "income") {
-            diff = -diff;
-          }
-          bal += diff;
-        }
-        if (acc.id === newTxn.accountId) {
-          // Apply new transaction effect
-          let diff = newTxn.amount;
-          if (newTxn.kind === "expense" || newTxn.kind === "transfer") {
-            diff = -diff;
-          }
-          bal += diff;
-        }
-        return { ...acc, balance: bal };
-      });
-      return { ...state, accounts, transactions: upsert(state.transactions, newTxn) };
-    }
-    case "txn:remove": {
-      const txnId = action.payload;
-      const txn = state.transactions.find(t => t.id === txnId);
-      if (!txn) return state;
-      const accounts = state.accounts.map(acc => {
-        if (acc.id === txn.accountId) {
-          let diff = txn.amount;
-          if (txn.kind === "income") {
-            diff = -diff;
-          }
-          return { ...acc, balance: acc.balance + diff };
-        }
-        return acc;
-      });
-      return { ...state, accounts, transactions: state.transactions.filter(t => t.id !== txnId) };
-    }
-    case "budget:add": return { ...state, budgets: [action.payload, ...state.budgets] };
-    case "budget:update": return { ...state, budgets: upsert(state.budgets, action.payload) };
-    case "budget:remove": return { ...state, budgets: state.budgets.filter(b => b.id !== action.payload) };
-    case "inv:add": return { ...state, investments: [action.payload, ...state.investments] };
-    case "inv:update": return { ...state, investments: upsert(state.investments, action.payload) };
-    case "inv:remove": return { ...state, investments: state.investments.filter(i => i.id !== action.payload) };
-    case "loan:add": return { ...state, loans: [action.payload, ...state.loans] };
-    case "loan:update": return { ...state, loans: upsert(state.loans, action.payload) };
-    case "loan:remove": return { ...state, loans: state.loans.filter(l => l.id !== action.payload) };
-    case "bill:add": return { ...state, bills: [action.payload, ...state.bills] };
-    case "bill:update": return { ...state, bills: upsert(state.bills, action.payload) };
-    case "bill:remove": return { ...state, bills: state.bills.filter(b => b.id !== action.payload) };
-    case "goal:add": return { ...state, goals: [action.payload, ...state.goals] };
-    case "goal:update": return { ...state, goals: upsert(state.goals, action.payload) };
-    case "goal:remove": return { ...state, goals: state.goals.filter(g => g.id !== action.payload) };
+    default: return state;
   }
 }
 
@@ -159,6 +128,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const initialLoad = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCount = useRef(0);
+
+  // Initialize Automation Engine
+  useEffect(() => {
+    AutomationEngine.initialize();
+  }, []);
+
+  // Safe dispatch with pre-flight Validation Engine checks
+  const safeDispatch = (action: Action) => {
+    let eventType: FinancialEventType | null = null;
+    let payload: any = null;
+
+    switch (action.type) {
+      case "account:add": eventType = "account.created"; payload = action.payload; break;
+      case "account:update": eventType = "account.updated"; payload = action.payload; break;
+      case "account:remove": eventType = "account.deleted"; payload = action.payload; break;
+      case "txn:add": eventType = "transaction.created"; payload = action.payload; break;
+      case "txn:update": eventType = "transaction.updated"; payload = action.payload; break;
+      case "txn:remove": eventType = "transaction.deleted"; payload = action.payload; break;
+      case "budget:add": eventType = "budget.created"; payload = action.payload; break;
+      case "budget:update": eventType = "budget.updated"; payload = action.payload; break;
+      case "budget:remove": eventType = "budget.deleted"; payload = action.payload; break;
+      case "inv:add": eventType = "investment.created"; payload = action.payload; break;
+      case "inv:update": eventType = "investment.updated"; payload = action.payload; break;
+      case "inv:remove": eventType = "investment.deleted"; payload = action.payload; break;
+      case "loan:add": eventType = "loan.created"; payload = action.payload; break;
+      case "loan:update": eventType = "loan.updated"; payload = action.payload; break;
+      case "loan:remove": eventType = "loan.deleted"; payload = action.payload; break;
+      case "bill:add": eventType = "bill.created"; payload = action.payload; break;
+      case "bill:update": eventType = "bill.updated"; payload = action.payload; break;
+      case "bill:remove": eventType = "bill.deleted"; payload = action.payload; break;
+      case "goal:add": eventType = "goal.created"; payload = action.payload; break;
+      case "goal:update": eventType = "goal.updated"; payload = action.payload; break;
+      case "goal:remove": eventType = "goal.deleted"; payload = action.payload; break;
+      case "goal:contribute": eventType = "goal.contribution"; payload = action.payload; break;
+      case "bill:pay": eventType = "bill.paid"; payload = action.payload; break;
+      case "loan:pay": eventType = "loan.payment"; payload = action.payload; break;
+    }
+
+    if (eventType) {
+      const event = EventEngine.createEvent(eventType, payload);
+      const valResult = ValidationEngine.validate(state, event);
+      if (!valResult.isValid) {
+        toast.error(valResult.error || "Validation error");
+        return;
+      }
+    }
+
+    dispatch(action);
+  };
 
   // Load from Supabase on user change
   useEffect(() => {
@@ -252,7 +270,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     saveTimer.current = setTimeout(() => {
       retryCount.current += 1;
       triggerSave();
-    }, Math.min(10000, 2000 * retryCount.current)); // exponential backoff
+    }, Math.min(10000, 2000 * retryCount.current));
   };
 
   // Online/Offline listeners
@@ -280,15 +298,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       triggerSave();
-    }, 1000); // 1s debounce
+    }, 1000);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [state, user?.id]);
 
-  return <Ctx.Provider value={{ state, dispatch, loading, syncStatus }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ state, dispatch: safeDispatch, loading, syncStatus }}>{children}</Ctx.Provider>;
 }
-
-// Re-export for setState-style loading indicator
-import { useState } from "react";
 
 export function useStore() {
   const c = useContext(Ctx);
