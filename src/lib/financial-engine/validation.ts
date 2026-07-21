@@ -290,6 +290,120 @@ export class ValidationEngine {
 
         break;
       }
+
+      case "investment.created":
+      case "investment.updated": {
+        const inv = event.payload;
+        if (!inv.name || !inv.name.trim()) {
+          return { isValid: false, error: "Investment name cannot be empty." };
+        }
+        if (inv.units < 0) {
+          return { isValid: false, error: "Quantity cannot be negative." };
+        }
+        if (inv.averageBuyPrice < 0 || inv.currentPrice < 0) {
+          return { isValid: false, error: "Price cannot be negative." };
+        }
+        
+        const duplicate = state.investments.find(
+          (i) => i.id !== inv.id && i.name.toLowerCase() === inv.name.toLowerCase() && i.type === inv.type
+        );
+        if (duplicate) {
+          return { isValid: false, error: `An investment holding for '${inv.name}' (${inv.type}) already exists.` };
+        }
+
+        if (inv.linkedAccountId) {
+          const accExists = state.accounts.some((a) => a.id === inv.linkedAccountId);
+          if (!accExists) {
+            return { isValid: false, error: "Linked account does not exist." };
+          }
+        }
+        break;
+      }
+
+      case "investment.buy": {
+        const { investmentId, units, price, accountId, fees, taxes } = event.payload;
+        if (units <= 0) {
+          return { isValid: false, error: "Quantity to buy must be greater than zero." };
+        }
+        if (price <= 0) {
+          return { isValid: false, error: "Purchase price must be greater than zero." };
+        }
+        const inv = state.investments.find((i) => i.id === investmentId);
+        if (!inv) {
+          return { isValid: false, error: "Target investment does not exist." };
+        }
+        const acc = state.accounts.find((a) => a.id === accountId);
+        if (!acc) {
+          return { isValid: false, error: "Funding account does not exist." };
+        }
+        const totalCost = units * price + (fees ?? 0) + (taxes ?? 0);
+        if (acc.balance < totalCost) {
+          return { isValid: false, error: `Insufficient funds in ${acc.name} (Balance: ₹${acc.balance.toLocaleString()}, Cost: ₹${totalCost.toLocaleString()}).` };
+        }
+        break;
+      }
+
+      case "investment.sell": {
+        const { investmentId, units, price, accountId } = event.payload;
+        if (units <= 0) {
+          return { isValid: false, error: "Quantity to sell must be greater than zero." };
+        }
+        if (price <= 0) {
+          return { isValid: false, error: "Sale price must be greater than zero." };
+        }
+        const inv = state.investments.find((i) => i.id === investmentId);
+        if (!inv) {
+          return { isValid: false, error: "Target investment does not exist." };
+        }
+        if ((inv.units ?? 0) < units) {
+          return { isValid: false, error: `Cannot sell more units than you own (Owned: ${inv.units ?? 0}, Trying to sell: ${units}).` };
+        }
+        const acc = state.accounts.find((a) => a.id === accountId);
+        if (!acc) {
+          return { isValid: false, error: "Linked credit account does not exist." };
+        }
+        break;
+      }
+
+      case "investment.dividend": {
+        const { investmentId, amount, accountId } = event.payload;
+        if (amount <= 0) {
+          return { isValid: false, error: "Dividend amount must be greater than zero." };
+        }
+        const inv = state.investments.find((i) => i.id === investmentId);
+        if (!inv) {
+          return { isValid: false, error: "Target investment does not exist." };
+        }
+        const acc = state.accounts.find((a) => a.id === accountId);
+        if (!acc) {
+          return { isValid: false, error: "Linked deposit account does not exist." };
+        }
+        break;
+      }
+
+      case "investment.bonus": {
+        const { investmentId, units } = event.payload;
+        if (units <= 0) {
+          return { isValid: false, error: "Bonus quantity must be greater than zero." };
+        }
+        const inv = state.investments.find((i) => i.id === investmentId);
+        if (!inv) {
+          return { isValid: false, error: "Target investment does not exist." };
+        }
+        break;
+      }
+
+      case "investment.split": {
+        const { investmentId, ratio } = event.payload;
+        if (ratio <= 0) {
+          return { isValid: false, error: "Split ratio must be greater than zero." };
+        }
+        const inv = state.investments.find((i) => i.id === investmentId);
+        if (!inv) {
+          return { isValid: false, error: "Target investment does not exist." };
+        }
+        break;
+      }
     }
 
     return { isValid: true };

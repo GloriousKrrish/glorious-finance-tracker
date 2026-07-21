@@ -24,9 +24,9 @@ function Dashboard() {
 
   const totals = useMemo(() => {
     const db = SelectorEngine.getDashboard(state);
-    const invReturn = investments.reduce((s, i) => s + (i.current - i.invested), 0);
-    return { assets: db.totalAssets, liabilities: db.totalLiabilities, netWorth: db.netWorth, income: db.monthlyIncome, expense: db.monthlyExpense, savingsRate: db.savingsRate, invReturn };
-  }, [state, investments]);
+    const summary = SelectorEngine.getPortfolioSummary(state);
+    return { assets: db.totalAssets, liabilities: db.totalLiabilities, netWorth: db.netWorth, income: db.monthlyIncome, expense: db.monthlyExpense, savingsRate: db.savingsRate, invReturn: summary.unrealizedPl };
+  }, [state]);
 
   const healthScore = useMemo(() => {
     return SelectorEngine.getDashboard(state).healthScore;

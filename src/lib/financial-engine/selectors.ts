@@ -225,7 +225,7 @@ export class SelectorEngine {
     if (this.cachedLoansOutstandingSummary === null) {
       this.cachedLoansOutstandingSummary = this.getLoans(state).reduce((sum, l) => sum + l.outstanding, 0);
     }
-    return this.cachedLoansOutstandingSummary;
+    return this.cachedLoansOutstandingSummary as number;
   }
 
   public static getLoansEmiSummary(state: State): number {
@@ -233,7 +233,7 @@ export class SelectorEngine {
     if (this.cachedLoansEmiSummary === null) {
       this.cachedLoansEmiSummary = this.getActiveLoans(state).reduce((sum, l) => sum + l.emi, 0);
     }
-    return this.cachedLoansEmiSummary;
+    return this.cachedLoansEmiSummary as number;
   }
 
   public static getDebtRatio(state: State): number {
@@ -413,7 +413,8 @@ export class SelectorEngine {
   } {
     const summary = { Excellent: 0, Good: 0, Warning: 0, Critical: 0 };
     this.getGoals(state).forEach((g) => {
-      summary[g.metrics.goalHealth] = (summary[g.metrics.goalHealth] || 0) + 1;
+      const h = g.metrics.goalHealth as keyof typeof summary;
+      summary[h] = (summary[h] || 0) + 1;
     });
     return summary;
   }
@@ -426,11 +427,120 @@ export class SelectorEngine {
     );
   }
 
-  public static getInvestmentMetrics(state: State) {
+  public static getInvestmentDetailed(state: State) {
     this.checkAndClearCache(state);
     if (!this.cachedInvestments) {
-      this.cachedInvestments = CalculationEngine.calculateInvestment(state.investments);
+      this.cachedInvestments = CalculationEngine.calculatePortfolioDetailed(state.investments, state.transactions);
     }
     return this.cachedInvestments;
+  }
+
+  public static getInvestments(state: State): any[] {
+    return this.getInvestmentDetailed(state).investments;
+  }
+
+  public static getPortfolioSummary(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    return {
+      portfolioValue: detailed.portfolioValue,
+      portfolioInvested: detailed.portfolioInvested,
+      unrealizedPl: detailed.unrealizedPl,
+      returnPercentage: detailed.returnPercentage,
+      realizedPl: detailed.realizedPl,
+      totalDividends: detailed.totalDividends,
+      dividendYield: detailed.dividendYield,
+      cagr: detailed.cagr,
+      xirr: detailed.xirr,
+      diversificationScore: detailed.diversificationScore,
+      riskScore: detailed.riskScore,
+      portfolioHealth: detailed.portfolioHealth,
+      healthAlerts: detailed.healthAlerts
+    };
+  }
+
+  public static getPortfolioAllocation(state: State) {
+    return this.getInvestmentDetailed(state).portfolioAllocation;
+  }
+
+  public static getAssetAllocation(state: State) {
+    return this.getInvestmentDetailed(state).assetAllocation;
+  }
+
+  public static getSectorAllocation(state: State) {
+    return this.getInvestmentDetailed(state).sectorAllocation;
+  }
+
+  public static getTopGainers(state: State) {
+    return this.getInvestmentDetailed(state).topGainers;
+  }
+
+  public static getTopLosers(state: State) {
+    return this.getInvestmentDetailed(state).topLosers;
+  }
+
+  public static getDividendSummary(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    const dividendTxns = state.transactions.filter(t => t.kind === "dividend");
+    return {
+      totalDividends: detailed.totalDividends,
+      dividendYield: detailed.dividendYield,
+      transactions: dividendTxns
+    };
+  }
+
+  public static getRiskSummary(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    let riskLevel: "Low" | "Medium" | "High" = "Medium";
+    if (detailed.riskScore < 30) riskLevel = "Low";
+    else if (detailed.riskScore > 70) riskLevel = "High";
+    
+    return {
+      riskScore: detailed.riskScore,
+      riskLevel,
+      highRiskAssetCount: detailed.investments.filter((i: any) => i.units > 0 && (i.type === "crypto" || i.type === "stock")).length
+    };
+  }
+
+  public static getReturnSummary(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    return {
+      unrealizedPl: detailed.unrealizedPl,
+      realizedPl: detailed.realizedPl,
+      totalGainLoss: detailed.unrealizedPl + detailed.realizedPl,
+      returnPercentage: detailed.returnPercentage,
+      cagr: detailed.cagr,
+      xirr: detailed.xirr
+    };
+  }
+
+  public static getInvestmentTimeline(state: State) {
+    return this.getInvestmentDetailed(state).timeline;
+  }
+
+  public static getNetWorthContribution(state: State): number {
+    const detailed = this.getInvestmentDetailed(state);
+    const db = this.getDashboard(state);
+    const netWorth = db.netWorth || 1;
+    return (detailed.portfolioValue / Math.max(1, netWorth)) * 100;
+  }
+
+  public static getPortfolioHealth(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    return {
+      health: detailed.portfolioHealth,
+      alerts: detailed.healthAlerts,
+      diversificationScore: detailed.diversificationScore,
+      riskScore: detailed.riskScore
+    };
+  }
+
+  public static getInvestmentMetrics(state: State) {
+    const detailed = this.getInvestmentDetailed(state);
+    return {
+      portfolioValue: detailed.portfolioValue,
+      portfolioInvested: detailed.portfolioInvested,
+      unrealizedPl: detailed.unrealizedPl,
+      returnPercentage: detailed.returnPercentage,
+    };
   }
 }

@@ -9,6 +9,10 @@ export class DependencyRegistry {
     "transaction.created": ["transactions", "accounts", "budgets", "loans", "bills", "goals", "dashboard", "reports", "ai"],
     "transaction.updated": ["transactions", "accounts", "budgets", "loans", "bills", "goals", "dashboard", "reports", "ai"],
     "transaction.deleted": ["transactions", "accounts", "budgets", "loans", "bills", "goals", "dashboard", "reports", "ai"],
+    "transaction.reversed": ["transactions", "accounts", "dashboard", "reports", "ai"],
+    "transaction.imported": ["transactions", "accounts", "dashboard", "reports", "ai"],
+    "transaction.synced": ["transactions", "accounts", "dashboard", "reports", "ai"],
+    "transaction.recurring.generated": ["transactions", "accounts", "dashboard", "reports", "ai"],
 
     "budget.created": ["budgets", "dashboard", "reports", "ai"],
     "budget.updated": ["budgets", "dashboard", "reports", "ai"],
@@ -17,6 +21,11 @@ export class DependencyRegistry {
     "investment.created": ["investments", "accounts", "dashboard", "reports", "ai"],
     "investment.updated": ["investments", "accounts", "dashboard", "reports", "ai"],
     "investment.deleted": ["investments", "accounts", "dashboard", "reports", "ai"],
+    "investment.buy": ["investments", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "investment.sell": ["investments", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "investment.dividend": ["investments", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "investment.bonus": ["investments", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "investment.split": ["investments", "transactions", "accounts", "dashboard", "reports", "ai"],
 
     "loan.created": ["loans", "bills", "dashboard", "reports", "ai"],
     "loan.updated": ["loans", "bills", "dashboard", "reports", "ai"],

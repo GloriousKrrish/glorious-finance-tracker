@@ -363,7 +363,7 @@ function GoalsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${healthColors[m.goalHealth]}`}>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${healthColors[m.goalHealth as keyof typeof healthColors]}`}>
                       {m.goalHealth}
                     </span>
                     <EditIconButton>

@@ -372,8 +372,8 @@ export class CalculationEngine {
     unrealizedPl: number;
     returnPercentage: number;
   } {
-    const portfolioValue = investments.reduce((sum, inv) => sum + inv.current, 0);
-    const portfolioInvested = investments.reduce((sum, inv) => sum + inv.invested, 0);
+    const portfolioValue = investments.reduce((sum, inv) => sum + ((inv.units ?? 0) > 0 ? (inv.units ?? 0) * (inv.currentPrice ?? 0) : (inv.current ?? 0)), 0);
+    const portfolioInvested = investments.reduce((sum, inv) => sum + ((inv.units ?? 0) > 0 ? (inv.units ?? 0) * (inv.averageBuyPrice ?? 0) : (inv.invested ?? 0)), 0);
     const unrealizedPl = portfolioValue - portfolioInvested;
     const returnPercentage = portfolioInvested > 0 ? (unrealizedPl / portfolioInvested) * 100 : 0;
 
@@ -382,6 +382,321 @@ export class CalculationEngine {
       portfolioInvested,
       unrealizedPl,
       returnPercentage,
+    };
+  }
+
+  public static calculateXIRRRaw(cashFlows: { date: Date; amount: number }[]): number {
+    // Group by date (ignoring time) to prevent intraday/millisecond anomalies
+    const grouped = new Map<number, number>();
+    cashFlows.forEach(cf => {
+      const d = new Date(cf.date);
+      d.setHours(0, 0, 0, 0);
+      const time = d.getTime();
+      grouped.set(time, (grouped.get(time) || 0) + cf.amount);
+    });
+
+    const normalizedFlows = Array.from(grouped.entries())
+      .map(([time, amount]) => ({ date: new Date(time), amount }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    if (normalizedFlows.length < 2) return 0;
+    
+    const hasPositive = normalizedFlows.some(cf => cf.amount > 0);
+    const hasNegative = normalizedFlows.some(cf => cf.amount < 0);
+    if (!hasPositive || !hasNegative) return 0;
+
+    // Check if the total span is 0 days
+    const t0 = normalizedFlows[0].date.getTime();
+    const tn = normalizedFlows[normalizedFlows.length - 1].date.getTime();
+    if (t0 === tn) return 0;
+
+    const maxIter = 100;
+    const tol = 1e-6;
+    let r = 0.1;
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      let f = 0;
+      let df = 0;
+
+      for (const cf of normalizedFlows) {
+        const t = (cf.date.getTime() - t0) / (365 * 24 * 60 * 60 * 1000);
+        const val = 1 + r;
+        if (val <= 0) {
+          r = -0.5;
+          break;
+        }
+        f += cf.amount / Math.pow(val, t);
+        df -= t * cf.amount / Math.pow(val, t + 1);
+      }
+
+      if (Math.abs(df) < 1e-12) break;
+
+      const nextR = r - f / df;
+      if (Math.abs(nextR - r) < tol) {
+        return nextR;
+      }
+      r = nextR;
+    }
+
+    return r;
+  }
+
+  public static calculatePortfolioDetailed(investments: Investment[], transactions: Transaction[]) {
+    // 1. Calculate values for each investment
+    const processedInvestments = investments.map(inv => {
+      const units = inv.units ?? 0;
+      const currentPrice = inv.currentPrice ?? 0;
+      const averageBuyPrice = inv.averageBuyPrice ?? 0;
+      
+      const currentValue = units > 0 ? units * currentPrice : (inv.current ?? 0);
+      const totalInvested = units > 0 ? units * averageBuyPrice : (inv.invested ?? 0);
+      const gainLoss = currentValue - totalInvested;
+      const gainLossPercentage = totalInvested > 0 ? (gainLoss / totalInvested) * 100 : 0;
+      
+      // Realized profit/loss for this investment from ledger
+      const sales = transactions.filter(t => t.linkedEntityId === inv.id && t.kind === "investment_sale");
+      const realizedPl = sales.reduce((sum, t) => sum + (t.metadata?.realizedGainLoss ?? 0), 0);
+      
+      // Dividends received
+      const dividends = transactions.filter(t => t.linkedEntityId === inv.id && t.kind === "dividend");
+      const totalDividends = dividends.reduce((sum, t) => sum + t.amount, 0);
+
+      // Return object with derived properties populated
+      return {
+        ...inv,
+        currentValue,
+        totalInvested,
+        gainLoss,
+        gainLossPercentage,
+        realizedPl,
+        totalDividends,
+        // Support legacy fields
+        current: currentValue,
+        invested: totalInvested,
+      };
+    });
+
+    const activeInvestments = processedInvestments.filter(i => i.units > 0 || (i.units === undefined && i.currentValue > 0));
+
+    // 2. Summary stats
+    const portfolioValue = activeInvestments.reduce((sum, i) => sum + i.currentValue, 0);
+    const portfolioInvested = activeInvestments.reduce((sum, i) => sum + i.totalInvested, 0);
+    const unrealizedPl = portfolioValue - portfolioInvested;
+    const returnPercentage = portfolioInvested > 0 ? (unrealizedPl / portfolioInvested) * 100 : 0;
+
+    // Realized profits/losses from all transactions
+    const totalRealizedPl = transactions
+      .filter(t => t.kind === "investment_sale")
+      .reduce((sum, t) => sum + (t.metadata?.realizedGainLoss ?? 0), 0);
+
+    const totalDividends = transactions
+      .filter(t => t.kind === "dividend")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const dividendYield = portfolioInvested > 0 ? (totalDividends / portfolioInvested) * 100 : 0;
+
+    // 3. CAGR and XIRR
+    // CAGR
+    let firstPurchaseDate: Date | null = null;
+    transactions.forEach(t => {
+      if ((t.kind === "investment_purchase" || t.kind === "investment_sale") && t.date) {
+        const d = new Date(t.date);
+        if (!firstPurchaseDate || d < firstPurchaseDate) {
+          firstPurchaseDate = d;
+        }
+      }
+    });
+
+    // Fallback if no transactions
+    if (!firstPurchaseDate && activeInvestments.length > 0) {
+      activeInvestments.forEach(i => {
+        if (i.purchaseDate) {
+          const d = new Date(i.purchaseDate);
+          if (!firstPurchaseDate || d < firstPurchaseDate) {
+            firstPurchaseDate = d;
+          }
+        }
+      });
+    }
+
+    const today = new Date();
+    let years = 0;
+    if (firstPurchaseDate) {
+      const diffMs = today.getTime() - (firstPurchaseDate as Date).getTime();
+      years = diffMs / (365 * 24 * 60 * 60 * 1000);
+    }
+
+    const cagr = (portfolioInvested > 0 && portfolioValue > 0 && years > 0.1)
+      ? (Math.pow(portfolioValue / portfolioInvested, 1 / years) - 1) * 100
+      : returnPercentage; // fallback to absolute return if short time or 0 value
+
+    // XIRR
+    const cashFlows: { date: Date; amount: number }[] = [];
+    transactions.forEach(t => {
+      if (t.kind === "investment_purchase") {
+        cashFlows.push({ date: new Date(t.date), amount: -t.amount });
+      } else if (t.kind === "investment_sale") {
+        cashFlows.push({ date: new Date(t.date), amount: t.amount });
+      } else if (t.kind === "dividend") {
+        cashFlows.push({ date: new Date(t.date), amount: t.amount });
+      }
+    });
+
+    // Add current portfolio valuation as a final cash inflow
+    if (portfolioValue > 0) {
+      cashFlows.push({ date: today, amount: portfolioValue });
+    }
+
+    // Sort cash flows by date
+    cashFlows.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let xirr = 0;
+    try {
+      xirr = this.calculateXIRRRaw(cashFlows) * 100;
+      if (xirr === 0) {
+        xirr = cagr;
+      }
+    } catch (e) {
+      xirr = cagr; // fallback
+    }
+
+    // 4. Allocations
+    // Portfolio Allocation (holdings weight)
+    const portfolioAllocation = activeInvestments.map(i => ({
+      id: i.id,
+      name: i.name,
+      value: i.currentValue,
+      percentage: portfolioValue > 0 ? (i.currentValue / portfolioValue) * 100 : 0
+    })).sort((a, b) => b.value - a.value);
+
+    // Asset Allocation
+    const assetAllocMap = new Map<string, number>();
+    activeInvestments.forEach(i => {
+      const typeLabel = i.type;
+      assetAllocMap.set(typeLabel, (assetAllocMap.get(typeLabel) || 0) + i.currentValue);
+    });
+    const assetAllocation = Array.from(assetAllocMap.entries()).map(([name, value]) => ({
+      name,
+      value,
+      percentage: portfolioValue > 0 ? (value / portfolioValue) * 100 : 0
+    })).sort((a, b) => b.value - a.value);
+
+    // Sector Allocation
+    const sectorAllocMap = new Map<string, number>();
+    activeInvestments.forEach(i => {
+      const sector = i.metadata?.sector || (i.tags && i.tags[0]) || "Other";
+      sectorAllocMap.set(sector, (sectorAllocMap.get(sector) || 0) + i.currentValue);
+    });
+    const sectorAllocation = Array.from(sectorAllocMap.entries()).map(([name, value]) => ({
+      name,
+      value,
+      percentage: portfolioValue > 0 ? (value / portfolioValue) * 100 : 0
+    })).sort((a, b) => b.value - a.value);
+
+    // 5. Diversification and Risk Scores
+    // Diversification (HHI Index)
+    let hhi = 0;
+    if (portfolioValue > 0) {
+      activeInvestments.forEach(i => {
+        const weight = i.currentValue / portfolioValue;
+        hhi += weight * weight;
+      });
+    }
+    const diversificationScore = portfolioValue > 0 
+      ? Math.round(Math.max(0, 100 - hhi * 100))
+      : 100;
+
+    // Risk Score (weighted)
+    const riskWeights: Record<string, number> = {
+      crypto: 95,
+      stock: 75,
+      commodity: 60,
+      real_estate: 45,
+      reit: 50,
+      etf: 45,
+      mutual_fund: 40,
+      bond: 20,
+      fd: 10,
+      ppf: 5,
+      nps: 20,
+      gold: 25,
+      silver: 25,
+      custom: 50
+    };
+
+    let totalWeightedRisk = 0;
+    if (portfolioValue > 0) {
+      activeInvestments.forEach(i => {
+        const weight = i.currentValue / portfolioValue;
+        const risk = riskWeights[i.type] || 50;
+        totalWeightedRisk += weight * risk;
+      });
+    }
+    const riskScore = Math.round(totalWeightedRisk);
+
+    // 6. Portfolio Health Status & Alerts
+    let portfolioHealth: "Excellent" | "Good" | "Moderate" | "Risky" | "Needs Attention" = "Good";
+    const healthAlerts: string[] = [];
+
+    if (activeInvestments.length === 0) {
+      portfolioHealth = "Moderate";
+      healthAlerts.push("Portfolio is empty. Add your first holding to start tracking.");
+    } else {
+      if (diversificationScore < 30) {
+        portfolioHealth = "Needs Attention";
+        healthAlerts.push("Highly concentrated portfolio. Consider diversifying to reduce risk.");
+      } else if (diversificationScore < 50) {
+        portfolioHealth = "Moderate";
+        healthAlerts.push("Moderately concentrated portfolio. A few assets hold the majority of the value.");
+      }
+
+      if (riskScore > 75) {
+        portfolioHealth = "Risky";
+        healthAlerts.push("High-risk portfolio. A large portion is allocated to volatile assets like stocks or crypto.");
+      }
+
+      activeInvestments.forEach(i => {
+        if (portfolioValue > 0 && (i.currentValue / portfolioValue) > 0.3) {
+          healthAlerts.push(`Concentration alert: "${i.name}" represents ${(i.currentValue / portfolioValue * 100).toFixed(1)}% of your portfolio.`);
+        }
+      });
+    }
+
+    if (healthAlerts.length === 0) {
+      if (diversificationScore >= 70 && riskScore <= 50) {
+        portfolioHealth = "Excellent";
+      } else {
+        portfolioHealth = "Good";
+      }
+    }
+
+    const gainersLosers = [...activeInvestments].sort((a, b) => b.gainLossPercentage - a.gainLossPercentage);
+    const topGainers = gainersLosers.filter(i => i.gainLoss > 0).slice(0, 3);
+    const topLosers = [...gainersLosers].reverse().filter(i => i.gainLoss < 0).slice(0, 3);
+
+    return {
+      investments: processedInvestments,
+      portfolioValue,
+      portfolioInvested,
+      unrealizedPl,
+      returnPercentage,
+      realizedPl: totalRealizedPl,
+      totalDividends,
+      dividendYield,
+      cagr,
+      xirr,
+      diversificationScore,
+      riskScore,
+      portfolioHealth,
+      healthAlerts,
+      portfolioAllocation,
+      assetAllocation,
+      sectorAllocation,
+      topGainers,
+      topLosers,
+      timeline: transactions
+        .filter(t => t.linkedEntityType === "investment" || t.category === "Investments")
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     };
   }
 
@@ -402,13 +717,12 @@ export class CalculationEngine {
       .filter((a) => a.type !== "credit_card" && a.type !== "investment")
       .reduce((sum, a) => sum + a.balance, 0);
 
-    const investmentBalance = state.investments.reduce((sum, i) => sum + i.current, 0);
+    const investmentBalance = state.investments.reduce((sum, inv) => sum + ((inv.units ?? 0) > 0 ? (inv.units ?? 0) * (inv.currentPrice ?? 0) : (inv.current ?? 0)), 0);
     const loanOutstanding = state.loans.reduce((sum, l) => {
       const metrics = CalculationEngine.calculateLoan(l, state.transactions);
       return sum + metrics.outstandingBalance;
     }, 0);
     
-    // Credit card balances count as negative assets (liabilities)
     const ccLiabilities = state.accounts
       .filter((a) => a.type === "credit_card")
       .reduce((sum, a) => sum + Math.abs(a.balance), 0);
@@ -417,7 +731,6 @@ export class CalculationEngine {
     const totalLiabilities = loanOutstanding + ccLiabilities;
     const netWorth = totalAssets - totalLiabilities;
 
-    // Monthly Cash Flow
     const now = new Date();
     const currentMonthTx = state.transactions.filter((t) => {
       const d = new Date(t.date);
@@ -428,16 +741,13 @@ export class CalculationEngine {
     const monthlyExpense = currentMonthTx.filter((t) => t.kind === "expense").reduce((sum, t) => sum + t.amount, 0);
     const savingsRate = monthlyIncome > 0 ? Math.max(0, ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100) : 0;
 
-    // Financial Health Score Heuristics
     let score = 75;
 
-    // 1. Savings Rate impact: up to +15 or -10
     if (savingsRate > 35) score += 15;
     else if (savingsRate > 20) score += 10;
     else if (savingsRate > 10) score += 5;
     else if (savingsRate === 0) score -= 10;
 
-    // 2. Debt-to-Asset Ratio impact: up to +10 or -20
     if (totalAssets > 0 && totalLiabilities > 0) {
       const ratio = totalLiabilities / totalAssets;
       if (ratio <= 0.1) score += 10;
@@ -447,7 +757,6 @@ export class CalculationEngine {
       score += 10;
     }
 
-    // 3. Budgets overrun impact: -10 per exceeded budget
     state.budgets.forEach((b) => {
       const metrics = CalculationEngine.calculateBudget(b, state.transactions);
       if (metrics.spent > b.limit) {
@@ -455,7 +764,6 @@ export class CalculationEngine {
       }
     });
 
-    // 4. Goals progress impact: +5 per goal that is >50% funded
     state.goals.forEach((g) => {
       const pct = g.target ? (g.saved / g.target) * 100 : 0;
       if (pct >= 100) score += 5;

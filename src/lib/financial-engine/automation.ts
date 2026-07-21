@@ -33,6 +33,38 @@ export class AutomationEngine {
       const { billId } = event.payload;
       toast.success(`Automation: Transaction auto-generated for paid bill.`);
     });
+
+    // 4. Investment Buy Workflow
+    this.registerWorkflow("investment.buy", (event) => {
+      const { units, price } = event.payload;
+      toast.success(`Portfolio Engine: Logged purchase of ${units} units at ₹${price.toLocaleString()}.`);
+    });
+
+    // 5. Investment Sell Workflow
+    this.registerWorkflow("investment.sell", (event) => {
+      const { units, price, realizedGainLoss } = event.payload;
+      const rgl = realizedGainLoss ?? 0;
+      const gainLossStr = rgl >= 0 ? `Gain: +₹${rgl.toLocaleString()}` : `Loss: -₹${Math.abs(rgl).toLocaleString()}`;
+      toast.success(`Portfolio Ledger: Logged sale of ${units} units at ₹${price.toLocaleString()}. (${gainLossStr})`);
+    });
+
+    // 6. Investment Dividend Workflow
+    this.registerWorkflow("investment.dividend", (event) => {
+      const { amount } = event.payload;
+      toast.success(`Dividend Recorded: Payout of ₹${amount.toLocaleString()} received and added to deposit account.`);
+    });
+
+    // 7. Investment Bonus Workflow
+    this.registerWorkflow("investment.bonus", (event) => {
+      const { units } = event.payload;
+      toast.info(`Holdings Adjusted: Applied ${units} bonus shares to portfolio.`);
+    });
+
+    // 8. Investment Split Workflow
+    this.registerWorkflow("investment.split", (event) => {
+      const { ratio } = event.payload;
+      toast.info(`Stock Split: Holdings adjusted using ratio 1:${ratio}.`);
+    });
   }
 
   public static registerWorkflow(eventType: string, handler: (event: FinancialEvent) => void): void {

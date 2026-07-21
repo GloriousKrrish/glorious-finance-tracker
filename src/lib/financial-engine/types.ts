@@ -24,6 +24,11 @@ export type FinancialEventType =
   | "investment.created"
   | "investment.updated"
   | "investment.deleted"
+  | "investment.buy"
+  | "investment.sell"
+  | "investment.dividend"
+  | "investment.bonus"
+  | "investment.split"
   // Loans
   | "loan.created"
   | "loan.updated"

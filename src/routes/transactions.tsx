@@ -102,7 +102,7 @@ function TxnPage() {
   const [cat, setCat] = useState<string>("all");
 
   const filtered = useMemo(() => {
-    return SelectorEngine.searchTransactions(state, q, { kind, cat });
+    return SelectorEngine.searchTransactions(state, q, { kind, category: cat === "all" ? undefined : cat });
   }, [state, q, kind, cat]);
 
   const [openAdd, setOpenAdd] = useState(false);
@@ -110,11 +110,11 @@ function TxnPage() {
 
   const totals = useMemo(() => {
     const income = filtered
-      .filter(t => ["income", "investment_sale", "refund", "interest", "dividend"].includes(t.kind))
-      .reduce((s, t) => s + t.amount, 0);
+      .filter((t: any) => ["income", "investment_sale", "refund", "interest", "dividend"].includes(t.kind))
+      .reduce((s: number, t: any) => s + t.amount, 0);
     const expense = filtered
-      .filter(t => ["expense", "bill_payment", "loan_payment", "goal_contribution"].includes(t.kind))
-      .reduce((s, t) => s + t.amount, 0);
+      .filter((t: any) => ["expense", "bill_payment", "loan_payment", "goal_contribution"].includes(t.kind))
+      .reduce((s: number, t: any) => s + t.amount, 0);
     return { income, expense, net: income - expense };
   }, [filtered]);
 
@@ -170,7 +170,7 @@ function TxnPage() {
               ) : filtered.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">No transactions match your filters.</TableCell></TableRow>
               ) : null}
-              {filtered.map(t => (
+              {filtered.map((t: any) => (
                 <TableRow key={t.id}>
                   <TableCell className="whitespace-nowrap text-sm">{formatDate(t.date)}</TableCell>
                   <TableCell>

@@ -70,20 +70,182 @@ export class RulesEngine {
       }
 
       case "investment.created": {
-        nextState.investments.unshift(event.payload);
+        const inv = event.payload;
+        // Set defaults for missing fields
+        inv.units = inv.units ?? 0;
+        inv.averageBuyPrice = inv.averageBuyPrice ?? 0;
+        inv.currentPrice = inv.currentPrice ?? inv.averageBuyPrice ?? 0;
+        inv.status = inv.status ?? "active";
+        nextState.investments.unshift(inv);
         this.syncInvestmentAccount(nextState);
         break;
       }
       case "investment.updated": {
         const inv = event.payload;
         const idx = nextState.investments.findIndex((i) => i.id === inv.id);
-        if (idx !== -1) nextState.investments[idx] = inv;
+        if (idx !== -1) {
+          // Keep units and prices aligned
+          nextState.investments[idx] = {
+            ...nextState.investments[idx],
+            ...inv
+          };
+        }
         this.syncInvestmentAccount(nextState);
         break;
       }
       case "investment.deleted": {
         nextState.investments = nextState.investments.filter((i) => i.id !== event.payload);
         this.syncInvestmentAccount(nextState);
+        break;
+      }
+
+      case "investment.buy": {
+        const { investmentId, units, price, accountId, date, fees, taxes } = event.payload;
+        const inv = nextState.investments.find((i) => i.id === investmentId);
+        if (inv) {
+          const buyTxn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount: units * price + (fees ?? 0) + (taxes ?? 0),
+            kind: "investment_purchase" as const,
+            category: "Investments",
+            accountId,
+            merchant: inv.name,
+            linkedEntityId: inv.id,
+            linkedEntityType: "investment" as const,
+            note: `Bought ${units} units at ₹${price}`,
+            metadata: { units, price, fees, taxes }
+          };
+          nextState.transactions.unshift(buyTxn);
+          this.applyTxnEffect(nextState, buyTxn, 1);
+
+          // Update holdings
+          const priorUnits = inv.units ?? 0;
+          const priorAvg = inv.averageBuyPrice ?? 0;
+          inv.units = priorUnits + units;
+          inv.purchaseQuantity = (inv.purchaseQuantity ?? 0) + units;
+          inv.averageBuyPrice = (priorUnits * priorAvg + units * price + (fees ?? 0) + (taxes ?? 0)) / inv.units;
+          if (fees) inv.fees = (inv.fees ?? 0) + fees;
+          if (taxes) inv.taxes = (inv.taxes ?? 0) + taxes;
+          inv.status = "active";
+          this.syncInvestmentAccount(nextState);
+        }
+        break;
+      }
+
+      case "investment.sell": {
+        const { investmentId, units, price, accountId, date, fees, taxes } = event.payload;
+        const inv = nextState.investments.find((i) => i.id === investmentId);
+        if (inv) {
+          const realizedGainLoss = (price - (inv.averageBuyPrice ?? 0)) * units - (fees ?? 0) - (taxes ?? 0);
+          const sellTxn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount: units * price - (fees ?? 0) - (taxes ?? 0),
+            kind: "investment_sale" as const,
+            category: "Investments",
+            accountId,
+            merchant: inv.name,
+            linkedEntityId: inv.id,
+            linkedEntityType: "investment" as const,
+            note: `Sold ${units} units at ₹${price}`,
+            metadata: { units, price, fees, taxes, realizedGainLoss }
+          };
+          nextState.transactions.unshift(sellTxn);
+          this.applyTxnEffect(nextState, sellTxn, 1);
+
+          // Update holdings
+          inv.units = Math.max(0, (inv.units ?? 0) - units);
+          if (fees) inv.fees = (inv.fees ?? 0) + fees;
+          if (taxes) inv.taxes = (inv.taxes ?? 0) + taxes;
+          if (inv.units === 0) {
+            inv.status = "sold";
+          }
+          this.syncInvestmentAccount(nextState);
+        }
+        break;
+      }
+
+      case "investment.dividend": {
+        const { investmentId, amount, accountId, date } = event.payload;
+        const inv = nextState.investments.find((i) => i.id === investmentId);
+        if (inv) {
+          const divTxn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount,
+            kind: "dividend" as const,
+            category: "Investments",
+            accountId,
+            merchant: inv.name,
+            linkedEntityId: inv.id,
+            linkedEntityType: "investment" as const,
+            note: `Dividend payout for ${inv.name}`
+          };
+          nextState.transactions.unshift(divTxn);
+          this.applyTxnEffect(nextState, divTxn, 1);
+          this.syncInvestmentAccount(nextState);
+        }
+        break;
+      }
+
+      case "investment.bonus": {
+        const { investmentId, units, date } = event.payload;
+        const inv = nextState.investments.find((i) => i.id === investmentId);
+        if (inv) {
+          const priorUnits = inv.units ?? 0;
+          const priorAvg = inv.averageBuyPrice ?? 0;
+          inv.units = priorUnits + units;
+          inv.purchaseQuantity = (inv.purchaseQuantity ?? 0) + units;
+          inv.averageBuyPrice = inv.units > 0 ? (priorUnits * priorAvg) / inv.units : 0;
+          
+          const bonusTxn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount: 0,
+            kind: "adjustment" as const,
+            category: "Investments",
+            accountId: inv.linkedAccountId || "",
+            merchant: inv.name,
+            linkedEntityId: inv.id,
+            linkedEntityType: "investment" as const,
+            note: `Received ${units} bonus shares`,
+            metadata: { units, price: 0 }
+          };
+          nextState.transactions.unshift(bonusTxn);
+          this.syncInvestmentAccount(nextState);
+        }
+        break;
+      }
+
+      case "investment.split": {
+        const { investmentId, ratio, date } = event.payload;
+        const inv = nextState.investments.find((i) => i.id === investmentId);
+        if (inv) {
+          const priorUnits = inv.units ?? 0;
+          inv.units = priorUnits * ratio;
+          if (inv.purchaseQuantity) {
+            inv.purchaseQuantity = inv.purchaseQuantity * ratio;
+          }
+          inv.averageBuyPrice = (inv.averageBuyPrice ?? 0) / ratio;
+          inv.currentPrice = (inv.currentPrice ?? 0) / ratio;
+
+          const splitTxn = {
+            id: uid(),
+            date: date || new Date().toISOString().slice(0, 10),
+            amount: 0,
+            kind: "adjustment" as const,
+            category: "Investments",
+            accountId: inv.linkedAccountId || "",
+            merchant: inv.name,
+            linkedEntityId: inv.id,
+            linkedEntityType: "investment" as const,
+            note: `Stock split 1:${ratio}`,
+            metadata: { ratio }
+          };
+          nextState.transactions.unshift(splitTxn);
+          this.syncInvestmentAccount(nextState);
+        }
         break;
       }
 
@@ -276,7 +438,12 @@ export class RulesEngine {
 
   // Automatically sync total investment holdings to the first Investment account balance
   private static syncInvestmentAccount(state: State): void {
-    const totalCurrentVal = state.investments.reduce((sum, inv) => sum + inv.current, 0);
+    const totalCurrentVal = state.investments.reduce((sum, inv) => {
+      const units = inv.units ?? 0;
+      const currentPrice = inv.currentPrice ?? 0;
+      const currentVal = units > 0 ? units * currentPrice : (inv.current ?? 0);
+      return sum + currentVal;
+    }, 0);
     const invAccount = state.accounts.find((a) => a.type === "investment");
     if (invAccount) {
       invAccount.balance = totalCurrentVal;

@@ -59,7 +59,29 @@ export interface Budget {
   alertThreshold?: number;
   carryForward?: boolean;
 }
-export interface Investment { id: ID; name: string; type: "stock" | "mutual_fund" | "gold" | "fd" | "ppf" | "nps" | "bond" | "crypto" | "other"; invested: number; current: number; units?: number; }
+export interface Investment {
+  id: ID;
+  name: string;
+  type: "mutual_fund" | "stock" | "etf" | "bond" | "gold" | "silver" | "crypto" | "fd" | "ppf" | "nps" | "real_estate" | "reit" | "commodity" | "custom";
+  assetClass: "equity" | "fixed_income" | "gold_silver" | "cash_equivalent" | "real_estate" | "crypto" | "other";
+  linkedAccountId?: ID;
+  broker?: string;
+  exchange?: string;
+  currency?: string;
+  units: number;
+  purchaseQuantity?: number;
+  averageBuyPrice: number;
+  currentPrice: number;
+  fees?: number;
+  taxes?: number;
+  purchaseDate?: string;
+  status?: "active" | "sold" | "liquidated";
+  tags?: string[];
+  notes?: string;
+  metadata?: Record<string, any>;
+  invested?: number; // legacy backward compatibility
+  current?: number;  // legacy backward compatibility
+}
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; accountId?: ID; }
 export interface Bill { id: ID; name: string; amount: number; dueDate: string; category: string; recurring: "none" | "monthly" | "yearly" | "weekly"; paid: boolean; }
 export interface Goal {
@@ -75,14 +97,7 @@ export interface Goal {
   status?: "active" | "completed" | "overdue" | "paused";
   notes?: string;
 }
-export interface Profile {
-  name: string;
-  email: string;
-  userType: "personal" | "employee" | "student" | "business" | "freelancer" | "family" | "hni";
-  currency: "INR";
-  onboardingCompleted?: boolean;
-  onboardingStep?: number;
-}
+export interface Profile { name: string; email: string; userType: "personal" | "business"; currency: string; onboardingCompleted: boolean; onboardingStep: number; }
 
 export interface State {
   profile: Profile;
@@ -104,6 +119,11 @@ type Action =
   | { type: "txn:add"; payload: Transaction } | { type: "txn:update"; payload: Transaction } | { type: "txn:remove"; payload: ID }
   | { type: "budget:add"; payload: Budget } | { type: "budget:update"; payload: Budget } | { type: "budget:remove"; payload: ID }
   | { type: "inv:add"; payload: Investment } | { type: "inv:update"; payload: Investment } | { type: "inv:remove"; payload: ID }
+  | { type: "inv:buy"; payload: { investmentId: ID; units: number; price: number; accountId: ID; date?: string; fees?: number; taxes?: number } }
+  | { type: "inv:sell"; payload: { investmentId: ID; units: number; price: number; accountId: ID; date?: string; fees?: number; taxes?: number } }
+  | { type: "inv:dividend"; payload: { investmentId: ID; amount: number; accountId: ID; date?: string } }
+  | { type: "inv:bonus"; payload: { investmentId: ID; units: number; date?: string } }
+  | { type: "inv:split"; payload: { investmentId: ID; ratio: number; date?: string } }
   | { type: "loan:add"; payload: Loan } | { type: "loan:update"; payload: Loan } | { type: "loan:remove"; payload: ID }
   | { type: "bill:add"; payload: Bill } | { type: "bill:update"; payload: Bill } | { type: "bill:remove"; payload: ID }
   | { type: "goal:add"; payload: Goal } | { type: "goal:update"; payload: Goal } | { type: "goal:remove"; payload: ID }
@@ -134,6 +154,11 @@ function reducer(state: State, action: Action): State {
     case "inv:add": eventType = "investment.created"; payload = action.payload; break;
     case "inv:update": eventType = "investment.updated"; payload = action.payload; break;
     case "inv:remove": eventType = "investment.deleted"; payload = action.payload; break;
+    case "inv:buy": eventType = "investment.buy"; payload = action.payload; break;
+    case "inv:sell": eventType = "investment.sell"; payload = action.payload; break;
+    case "inv:dividend": eventType = "investment.dividend"; payload = action.payload; break;
+    case "inv:bonus": eventType = "investment.bonus"; payload = action.payload; break;
+    case "inv:split": eventType = "investment.split"; payload = action.payload; break;
     case "loan:add": eventType = "loan.created"; payload = action.payload; break;
     case "loan:update": eventType = "loan.updated"; payload = action.payload; break;
     case "loan:remove": eventType = "loan.deleted"; payload = action.payload; break;
@@ -207,6 +232,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case "inv:add": eventType = "investment.created"; payload = action.payload; break;
       case "inv:update": eventType = "investment.updated"; payload = action.payload; break;
       case "inv:remove": eventType = "investment.deleted"; payload = action.payload; break;
+      case "inv:buy": eventType = "investment.buy"; payload = action.payload; break;
+      case "inv:sell": eventType = "investment.sell"; payload = action.payload; break;
+      case "inv:dividend": eventType = "investment.dividend"; payload = action.payload; break;
+      case "inv:bonus": eventType = "investment.bonus"; payload = action.payload; break;
+      case "inv:split": eventType = "investment.split"; payload = action.payload; break;
       case "loan:add": eventType = "loan.created"; payload = action.payload; break;
       case "loan:update": eventType = "loan.updated"; payload = action.payload; break;
       case "loan:remove": eventType = "loan.deleted"; payload = action.payload; break;
