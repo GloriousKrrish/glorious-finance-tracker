@@ -20,6 +20,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { Loader2, Sparkles } from "lucide-react";
 import { SyncStatusIndicator } from "@/components/sync-status";
 import { NotificationsPopover } from "@/components/notifications-popover";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { GlobalSearch } from "@/components/global-search";
 
 function NotFoundComponent() {
   return (
@@ -145,11 +147,14 @@ function AuthGate() {
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-md md:px-6">
             <SidebarTrigger />
-            <div className="ml-2 hidden text-xs font-medium uppercase tracking-widest text-muted-foreground md:block">
-              Private Wealth Console
+            <div className="hidden items-center gap-2 md:flex">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Wealth OS</span>
+              <span className="text-muted-foreground/35">|</span>
             </div>
+            <WorkspaceSwitcher />
+            <GlobalSearch />
             <div className="ml-auto flex items-center gap-3">
               <SyncStatusIndicator />
               <NotificationsPopover />

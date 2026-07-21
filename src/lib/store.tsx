@@ -9,10 +9,12 @@ import {
   AutomationEngine,
   type FinancialEventType
 } from "@/lib/financial-engine";
+import { WorkspaceEngine } from "@/lib/enterprise/workspace";
+import { AuditLogEngine } from "@/lib/enterprise/audit";
 
 export type ID = string;
 
-export interface Account { id: ID; name: string; type: "bank" | "cash" | "credit_card" | "wallet" | "investment"; balance: number; institution?: string; }
+export interface Account { id: ID; name: string; type: "bank" | "cash" | "credit_card" | "wallet" | "investment"; balance: number; institution?: string; workspaceId?: string; }
 export type TxnKind =
   | "income"
   | "expense"
@@ -37,6 +39,7 @@ export interface Transaction {
   toAccountId?: ID;
   merchant?: string;
   note?: string;
+  workspaceId?: string;
   
   // Ledger Fields
   currency?: string;
@@ -58,6 +61,7 @@ export interface Budget {
   endDate?: string;
   alertThreshold?: number;
   carryForward?: boolean;
+  workspaceId?: string;
 }
 export interface Investment {
   id: ID;
@@ -81,8 +85,9 @@ export interface Investment {
   metadata?: Record<string, any>;
   invested?: number; // legacy backward compatibility
   current?: number;  // legacy backward compatibility
+  workspaceId?: string;
 }
-export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; accountId?: ID; }
+export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; accountId?: ID; workspaceId?: string; }
 export interface Bill {
   id: ID;
   name: string;
@@ -105,6 +110,7 @@ export interface Bill {
   metadata?: Record<string, any>;
   paid?: boolean; // backwards compatibility
   recurring?: "none" | "monthly" | "yearly" | "weekly"; // backwards compatibility
+  workspaceId?: string;
 }
 export interface Goal {
   id: ID;
@@ -118,8 +124,9 @@ export interface Goal {
   linkedAccountId?: ID;
   status?: "active" | "completed" | "overdue" | "paused";
   notes?: string;
+  workspaceId?: string;
 }
-export interface Profile { name: string; email: string; userType: "personal" | "business"; currency: string; onboardingCompleted: boolean; onboardingStep: number; }
+export interface Profile { name: string; email: string; userType: "personal" | "business"; currency: string; onboardingCompleted: boolean; onboardingStep: number; activeWorkspaceId?: string; }
 
 export interface State {
   profile: Profile;
@@ -241,39 +248,116 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let eventType: FinancialEventType | null = null;
     let payload: any = null;
 
-    switch (action.type) {
-      case "account:add": eventType = "account.created"; payload = action.payload; break;
-      case "account:update": eventType = "account.updated"; payload = action.payload; break;
-      case "account:remove": eventType = "account.deleted"; payload = action.payload; break;
-      case "txn:add": eventType = "transaction.created"; payload = action.payload; break;
-      case "txn:update": eventType = "transaction.updated"; payload = action.payload; break;
-      case "txn:remove": eventType = "transaction.deleted"; payload = action.payload; break;
-      case "budget:add": eventType = "budget.created"; payload = action.payload; break;
-      case "budget:update": eventType = "budget.updated"; payload = action.payload; break;
-      case "budget:remove": eventType = "budget.deleted"; payload = action.payload; break;
-      case "inv:add": eventType = "investment.created"; payload = action.payload; break;
-      case "inv:update": eventType = "investment.updated"; payload = action.payload; break;
-      case "inv:remove": eventType = "investment.deleted"; payload = action.payload; break;
-      case "inv:buy": eventType = "investment.buy"; payload = action.payload; break;
-      case "inv:sell": eventType = "investment.sell"; payload = action.payload; break;
-      case "inv:dividend": eventType = "investment.dividend"; payload = action.payload; break;
-      case "inv:bonus": eventType = "investment.bonus"; payload = action.payload; break;
-      case "inv:split": eventType = "investment.split"; payload = action.payload; break;
-      case "loan:add": eventType = "loan.created"; payload = action.payload; break;
-      case "loan:update": eventType = "loan.updated"; payload = action.payload; break;
-      case "loan:remove": eventType = "loan.deleted"; payload = action.payload; break;
-      case "bill:add": eventType = "bill.created"; payload = action.payload; break;
-      case "bill:update": eventType = "bill.updated"; payload = action.payload; break;
-      case "bill:remove": eventType = "bill.deleted"; payload = action.payload; break;
-      case "goal:add": eventType = "goal.created"; payload = action.payload; break;
-      case "goal:update": eventType = "goal.updated"; payload = action.payload; break;
-      case "goal:remove": eventType = "goal.deleted"; payload = action.payload; break;
-      case "goal:contribute": eventType = "goal.contribution"; payload = action.payload; break;
-      case "bill:pay": eventType = "bill.paid"; payload = action.payload; break;
-      case "loan:pay": eventType = "loan.payment"; payload = action.payload; break;
+    let finalAction = { ...action };
+    const activeWs = state.profile.activeWorkspaceId || "personal";
+
+    // Auto-tag workspaceId for new items & trigger Audit Logging
+    if (action.type === "account:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "account.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "account", action: "create", newValue: `Account: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "account:update") {
+      eventType = "account.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "account", action: "update", newValue: `Account: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "account:remove") {
+      eventType = "account.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "account", action: "delete", newValue: `Account ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "txn:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "transaction.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "transaction", action: "create", newValue: `${action.payload.kind.toUpperCase()}: ${action.payload.merchant || action.payload.category} (₹${action.payload.amount})`, result: "success" });
+    } else if (action.type === "txn:update") {
+      eventType = "transaction.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "transaction", action: "update", newValue: `${action.payload.kind.toUpperCase()}: ${action.payload.merchant || action.payload.category} (₹${action.payload.amount})`, result: "success" });
+    } else if (action.type === "txn:remove") {
+      eventType = "transaction.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "transaction", action: "delete", newValue: `Transaction ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "budget:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "budget.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "settings", action: "create", newValue: `Budget category: ${action.payload.category} (Limit: ₹${action.payload.limit})`, result: "success" });
+    } else if (action.type === "budget:update") {
+      eventType = "budget.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "settings", action: "update", newValue: `Budget category: ${action.payload.category} (Limit: ₹${action.payload.limit})`, result: "success" });
+    } else if (action.type === "budget:remove") {
+      eventType = "budget.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "settings", action: "delete", newValue: `Budget ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "inv:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "investment.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "investment", action: "create", newValue: `Investment: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "inv:update") {
+      eventType = "investment.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "investment", action: "update", newValue: `Investment: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "inv:remove") {
+      eventType = "investment.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "investment", action: "delete", newValue: `Investment ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "loan:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "loan.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "create", newValue: `Loan: ${action.payload.name} (Principal: ₹${action.payload.principal})`, result: "success" });
+    } else if (action.type === "loan:update") {
+      eventType = "loan.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "update", newValue: `Loan: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "loan:remove") {
+      eventType = "loan.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "delete", newValue: `Loan ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "bill:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "bill.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "create", newValue: `Bill: ${action.payload.name} (Amount: ₹${action.payload.amount})`, result: "success" });
+    } else if (action.type === "bill:update") {
+      eventType = "bill.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "update", newValue: `Bill: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "bill:remove") {
+      eventType = "bill.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "delete", newValue: `Bill ID: ${action.payload}`, result: "success" });
+    } else if (action.type === "goal:add") {
+      finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
+      eventType = "goal.created";
+      payload = finalAction.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "goal", action: "create", newValue: `Goal: ${action.payload.name} (Target: ₹${action.payload.target})`, result: "success" });
+    } else if (action.type === "goal:update") {
+      eventType = "goal.updated";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "goal", action: "update", newValue: `Goal: ${action.payload.name}`, result: "success" });
+    } else if (action.type === "goal:remove") {
+      eventType = "goal.deleted";
+      payload = action.payload;
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "goal", action: "delete", newValue: `Goal ID: ${action.payload}`, result: "success" });
+    } else {
+      // Fallback switch mapping for other types
+      switch (action.type) {
+        case "inv:buy": eventType = "investment.buy"; payload = action.payload; break;
+        case "inv:sell": eventType = "investment.sell"; payload = action.payload; break;
+        case "inv:dividend": eventType = "investment.dividend"; payload = action.payload; break;
+        case "inv:bonus": eventType = "investment.bonus"; payload = action.payload; break;
+        case "inv:split": eventType = "investment.split"; payload = action.payload; break;
+        case "goal:contribute": eventType = "goal.contribution"; payload = action.payload; break;
+        case "bill:pay": eventType = "bill.paid"; payload = action.payload; break;
+        case "loan:pay": eventType = "loan.payment"; payload = action.payload; break;
+      }
     }
 
-    if (eventType) {
+    if (eventType && payload) {
       const event = EventEngine.createEvent(eventType, payload);
       const valResult = ValidationEngine.validate(state, event);
       if (!valResult.isValid) {
@@ -282,7 +366,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    dispatch(action);
+    dispatch(finalAction);
   };
 
   // Load from Supabase on user change
@@ -464,7 +548,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 export function useStore() {
   const c = useContext(Ctx);
   if (!c) throw new Error("useStore outside provider");
-  return c;
+
+  const activeWorkspaceId = c.state.profile.activeWorkspaceId || "personal";
+  const filteredState = WorkspaceEngine.getWorkspaceState(c.state, activeWorkspaceId);
+
+  return {
+    state: filteredState,
+    rawState: c.state,
+    dispatch: c.dispatch,
+    loading: c.loading,
+    syncStatus: c.syncStatus,
+    activeWorkspaceId
+  };
 }
 
 export const CATEGORIES = [

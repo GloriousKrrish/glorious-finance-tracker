@@ -28,6 +28,7 @@ const workspace = [
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Sync & OCR", url: "/sync", icon: RefreshCw },
   { title: "Sessions", url: "/sessions", icon: ShieldCheck },
+  { title: "Admin Console", url: "/admin", icon: ShieldCheck },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
