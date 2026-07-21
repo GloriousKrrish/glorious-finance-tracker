@@ -22,3 +22,24 @@ export type { ReportPayload, ReportSection } from "./reports";
 export { ForecastEngine } from "./forecast";
 export type { GoalForecast, LoanForecast, BudgetForecast, ForecastPoint } from "./forecast";
 export { ExportEngine } from "./export";
+
+// Financial Intelligence additions
+export {
+  ContextEngine,
+  InsightEngine,
+  RecommendationEngine,
+  RiskEngine,
+  OpportunityEngine,
+  ScenarioEngine,
+  GoalPlanner,
+  FinancialCoach
+} from "./intelligence";
+export type {
+  DeterministicInsight,
+  Recommendation,
+  FinancialRisk,
+  FinancialOpportunity,
+  ScenarioInput,
+  ScenarioResult,
+  GoalPlan
+} from "./intelligence";
