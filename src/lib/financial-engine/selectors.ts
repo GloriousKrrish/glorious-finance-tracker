@@ -1,5 +1,8 @@
 import type { State, Loan, Budget, Goal, Transaction, Investment, Account, Bill } from "./types";
 import { CalculationEngine } from "./calculations";
+import { ReportEngine } from "./reports";
+import { ForecastEngine } from "./forecast";
+import type { ReportFilters } from "./filters";
 
 export class SelectorEngine {
   private static lastState: State | null = null;
@@ -997,5 +1000,45 @@ export class SelectorEngine {
     });
 
     return notifications;
+  }
+
+  // --- REPORT & FORECAST WRAPPERS ---
+
+  public static getReport(
+    state: State,
+    type:
+      | "income"
+      | "expense"
+      | "cash_flow"
+      | "net_worth"
+      | "budget"
+      | "goal"
+      | "loan"
+      | "investment"
+      | "bills_subscriptions"
+      | "tax_ready",
+    filters: ReportFilters
+  ) {
+    return ReportEngine.generateReport(state, type, filters);
+  }
+
+  public static getNetWorthForecast(state: State, months: number = 12) {
+    return ForecastEngine.forecastNetWorth(state, months);
+  }
+
+  public static getCashFlowForecast(state: State, months: number = 12) {
+    return ForecastEngine.forecastCashFlow(state, months);
+  }
+
+  public static getGoalForecast(state: State, goalId: string) {
+    return ForecastEngine.forecastGoal(state, goalId);
+  }
+
+  public static getLoanForecast(state: State, loanId: string) {
+    return ForecastEngine.forecastLoan(state, loanId);
+  }
+
+  public static getBudgetForecast(state: State, budgetId: string) {
+    return ForecastEngine.forecastBudget(state, budgetId);
   }
 }

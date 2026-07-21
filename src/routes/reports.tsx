@@ -1,224 +1,575 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useStore } from "@/lib/store";
 import { formatINR, formatDate } from "@/lib/format";
-import { SelectorEngine } from "@/lib/financial-engine";
+import { SelectorEngine, ExportEngine, MetricsRegistry } from "@/lib/financial-engine";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileDown, FileText } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WidgetErrorBoundary } from "@/components/widget-error-boundary";
+import {
+  FileDown,
+  TrendingUp,
+  FileText,
+  Calendar,
+  Layers,
+  ArrowUpRight,
+  ShieldCheck,
+  Search,
+  Sparkles,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export const Route = createFileRoute("/reports")({
-  head: () => ({ meta: [{ title: "Reports · GloriousFinance" }] }),
+  head: () => ({ meta: [{ title: "Financial Intelligence Reports · GloriousFinance" }] }),
   component: ReportsPage,
 });
 
-type Preset = "week" | "month" | "custom";
+type ReportTemplate =
+  | "income"
+  | "expense"
+  | "cash_flow"
+  | "net_worth"
+  | "budget"
+  | "goal"
+  | "loan"
+  | "investment"
+  | "bills_subscriptions"
+  | "tax_ready";
 
 function ReportsPage() {
-  const { state } = useStore();
-  const [preset, setPreset] = useState<Preset>("month");
-  const [from, setFrom] = useState(() => new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().slice(0, 10));
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const { state, loading } = useStore();
 
-  const range = useMemo(() => {
+  // Filters State
+  const [template, setTemplate] = useState<ReportTemplate>("cash_flow");
+  const [presetRange, setPresetRange] = useState<"30days" | "90days" | "custom">("30days");
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  
+  const [selectedAccount, setSelectedAccount] = useState<string>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [merchantQuery, setMerchantQuery] = useState<string>("");
+
+  // Resolving dates based on preset
+  const finalRange = useMemo(() => {
     const now = new Date();
-    if (preset === "week") {
-      const s = new Date(now); s.setDate(s.getDate() - 7);
-      return { from: s.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+    if (presetRange === "30days") {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return { from: d.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
     }
-    if (preset === "month") {
-      const s = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: s.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+    if (presetRange === "90days") {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      return { from: d.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
     }
-    return { from, to };
-  }, [preset, from, to]);
+    return { from: fromDate, to: toDate };
+  }, [presetRange, fromDate, toDate]);
 
-  const txns = useMemo(() => state.transactions.filter(t => t.date >= range.from && t.date <= range.to)
-    .sort((a, b) => a.date.localeCompare(b.date)), [state.transactions, range]);
+  // Construct filters
+  const filters = useMemo(() => {
+    return {
+      dateRange: finalRange,
+      accountId: selectedAccount !== "all" ? selectedAccount : undefined,
+      category: selectedCategory !== "all" ? selectedCategory : undefined,
+      merchant: merchantQuery.trim() !== "" ? merchantQuery : undefined,
+    };
+  }, [finalRange, selectedAccount, selectedCategory, merchantQuery]);
 
-  const summary = useMemo(() => {
-    const income = txns.filter(t => t.kind === "income").reduce((s, t) => s + t.amount, 0);
-    const expense = txns.filter(t => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
-    const byCat: Record<string, number> = {};
-    txns.filter(t => t.kind === "expense").forEach(t => { byCat[t.category] = (byCat[t.category] ?? 0) + t.amount; });
-    const budgetStatus = state.budgets.map(b => {
-      const metrics = SelectorEngine.getBudgetMetrics(state, b);
-      return { ...b, spent: metrics.spent };
-    });
-    // Rough tax proxy — informational only
-    const gross = income * 12; // annualized rough estimate over the period assumption not applied
-    return { income, expense, net: income - expense, byCat, budgetStatus, gross };
-  }, [txns, state.budgets, state]);
+  // Call Report selector
+  const reportPayload = useMemo(() => {
+    if (loading) return null;
+    return SelectorEngine.getReport(state, template, filters);
+  }, [state, template, filters, loading]);
 
-  const generatePdf = () => {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const w = doc.internal.pageSize.getWidth();
-    const margin = 40;
+  // Deterministic Forecasts
+  const netWorthForecast = useMemo(() => {
+    if (loading) return [];
+    return SelectorEngine.getNetWorthForecast(state, 6);
+  }, [state, loading]);
 
-    // Cover / header band
-    doc.setFillColor(26, 54, 93); doc.rect(0, 0, w, 90, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(20);
-    doc.text("GloriousFinance", margin, 40);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-    doc.text("Private Wealth Console — Financial Report", margin, 58);
-    doc.setTextColor(212, 175, 55);
-    doc.setFontSize(9);
-    doc.text(`${formatDate(range.from)}  —  ${formatDate(range.to)}`, margin, 74);
+  const cashFlowForecast = useMemo(() => {
+    if (loading) return [];
+    return SelectorEngine.getCashFlowForecast(state, 6);
+  }, [state, loading]);
 
-    let y = 120;
-    doc.setTextColor(26, 54, 93); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text("EXECUTIVE SUMMARY", margin, y); y += 18;
+  if (loading || !reportPayload) {
+    return <ReportsSkeleton />;
+  }
 
-    doc.setTextColor(40, 40, 40); doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    const rows: Array<[string, string]> = [
-      ["Total Income", formatINR(summary.income)],
-      ["Total Expenses", formatINR(summary.expense)],
-      ["Net Cash Flow", formatINR(summary.net)],
-      ["Savings Rate", summary.income > 0 ? `${((summary.net / summary.income) * 100).toFixed(1)}%` : "—"],
-      ["Transactions", String(txns.length)],
-    ];
-    autoTable(doc, {
-      startY: y, head: [["Metric", "Value"]], body: rows,
-      theme: "plain", margin: { left: margin, right: margin },
-      headStyles: { fillColor: [245, 240, 232], textColor: [80, 80, 80], fontStyle: "bold" },
-      bodyStyles: { textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
-    });
-    y = (doc as any).lastAutoTable.finalY + 24;
+  // Categories list for filter dropdown
+  const uniqueCategories = Array.from(
+    new Set((state.transactions ?? []).map((t) => t.category))
+  ).filter(Boolean);
 
-    // Category breakdown
-    doc.setTextColor(26, 54, 93); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text("SPEND BY CATEGORY", margin, y); y += 8;
-    autoTable(doc, {
-      startY: y + 4,
-      head: [["Category", "Amount", "% of Expenses"]],
-      body: Object.entries(summary.byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => [
-        c, formatINR(v), summary.expense > 0 ? `${((v / summary.expense) * 100).toFixed(1)}%` : "—",
-      ]),
-      theme: "striped", margin: { left: margin, right: margin },
-      headStyles: { fillColor: [26, 54, 93], textColor: 255 },
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
-    });
-    y = (doc as any).lastAutoTable.finalY + 24;
-
-    // Budget performance
-    if (summary.budgetStatus.length) {
-      if (y > 700) { doc.addPage(); y = 60; }
-      doc.setTextColor(26, 54, 93); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-      doc.text("BUDGET PERFORMANCE", margin, y); y += 8;
-      autoTable(doc, {
-        startY: y + 4,
-        head: [["Category", "Limit", "Spent", "Remaining", "Status"]],
-        body: summary.budgetStatus.map(b => {
-          const rem = b.limit - b.spent;
-          return [b.category, formatINR(b.limit), formatINR(b.spent), formatINR(rem), rem < 0 ? "Over budget" : rem < b.limit * 0.2 ? "Watch" : "On track"];
-        }),
-        theme: "striped", margin: { left: margin, right: margin },
-        headStyles: { fillColor: [26, 54, 93], textColor: 255 },
-        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } },
-      });
-      y = (doc as any).lastAutoTable.finalY + 24;
-    }
-
-    // Transactions ledger
-    doc.addPage(); y = 60;
-    doc.setTextColor(26, 54, 93); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text("TRANSACTION LEDGER", margin, y);
-    autoTable(doc, {
-      startY: y + 12,
-      head: [["Date", "Kind", "Category", "Merchant", "Amount"]],
-      body: txns.map(t => [
-        formatDate(t.date), t.kind, t.category, t.merchant ?? "—",
-        (t.kind === "expense" ? "-" : t.kind === "income" ? "+" : "") + formatINR(t.amount),
-      ]),
-      theme: "striped", margin: { left: margin, right: margin }, styles: { fontSize: 9 },
-      headStyles: { fillColor: [26, 54, 93], textColor: 255 },
-      columnStyles: { 4: { halign: "right" } },
-    });
-
-    // Footer on all pages
-    const pages = doc.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text(`GloriousFinance · Generated ${new Date().toLocaleString("en-IN")}`, margin, doc.internal.pageSize.getHeight() - 20);
-      doc.text(`Page ${i} of ${pages}`, w - margin, doc.internal.pageSize.getHeight() - 20, { align: "right" });
-    }
-
-    doc.save(`GloriousFinance-Report-${range.from}_to_${range.to}.pdf`);
-  };
+  // Accounts list for filter dropdown
+  const accounts = state.accounts ?? [];
 
   return (
-    <div>
-      <PageHeader title="Reports" subtitle="Branded PDF summaries of your cash flow, budgets and ledger." />
-      <div className="grid gap-6 p-6 md:grid-cols-3 md:p-10">
-        <Card className="card-luxe p-6 md:col-span-1">
-          <h3 className="font-display text-lg font-semibold">Configure report</h3>
-          <div className="mt-4 space-y-4">
-            <div className="grid grid-cols-3 gap-2">
-              {(["week", "month", "custom"] as Preset[]).map(p => (
-                <Button key={p} type="button" variant={preset === p ? "default" : "outline"} onClick={() => setPreset(p)} className="capitalize">
-                  {p}
-                </Button>
-              ))}
+    <div className="space-y-6 pb-12" role="main" aria-label="Financial Intelligence Console">
+      <PageHeader
+        title="Financial Intelligence & Analytics"
+        subtitle="Canonical, zero-overhead financial statements, deterministic growth models, and exports."
+      />
+
+      <div className="grid gap-6 px-6 md:px-10 lg:grid-cols-4">
+        {/* Sidebar Controls */}
+        <div className="lg:col-span-1 space-y-6">
+          <Card className="card-luxe p-5 space-y-5">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-foreground uppercase tracking-widest">
+                Statement Template
+              </h3>
+              <p className="text-xs text-muted-foreground">Select report structure</p>
             </div>
-            {preset === "custom" && (
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>From</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-                <div><Label>To</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            
+            <div className="space-y-2">
+              <Select value={template} onValueChange={(val) => setTemplate(val as ReportTemplate)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash_flow">Cash Flow Statement</SelectItem>
+                  <SelectItem value="net_worth">Net Worth Balance Sheet</SelectItem>
+                  <SelectItem value="income">Income Distribution</SelectItem>
+                  <SelectItem value="expense">Expense Performance</SelectItem>
+                  <SelectItem value="budget">Budget Utilization</SelectItem>
+                  <SelectItem value="goal">Goal Capital Targets</SelectItem>
+                  <SelectItem value="loan">Amortization & Debt</SelectItem>
+                  <SelectItem value="investment">Wealth Portfolio</SelectItem>
+                  <SelectItem value="bills_subscriptions">Obligations & Subs</SelectItem>
+                  <SelectItem value="tax_ready">Tax Exposure Bracket</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </Card>
+
+          <Card className="card-luxe p-5 space-y-4">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-foreground uppercase tracking-widest">
+                Filter Engine
+              </h3>
+              <p className="text-xs text-muted-foreground">Adjust filters & dates</p>
+            </div>
+
+            {/* Date Range Preset */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Date Window</Label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(["30days", "90days", "custom"] as const).map((r) => (
+                  <Button
+                    key={r}
+                    type="button"
+                    variant={presetRange === r ? "default" : "outline"}
+                    onClick={() => setPresetRange(r)}
+                    className="text-[10px] h-7 px-1 capitalize"
+                  >
+                    {r === "30days" ? "30 Days" : r === "90days" ? "90 Days" : "Custom"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {presetRange === "custom" && (
+              <div className="grid grid-cols-2 gap-2 animate-fadeIn">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Start</Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs px-2"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">End</Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs px-2"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                  />
+                </div>
               </div>
             )}
-            <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
-              Range: <span className="font-medium text-foreground">{formatDate(range.from)} → {formatDate(range.to)}</span>
+
+            {/* Account Filter */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Account</Label>
+              <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="All Accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {accounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Button className="w-full" onClick={generatePdf}>
-              <FileDown className="mr-2 h-4 w-4" />Download PDF report
+
+            {/* Category Filter */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Category</Label>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {uniqueCategories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Merchant query */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Merchant Source</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-muted-foreground" />
+                <Input
+                  placeholder="Search merchant..."
+                  value={merchantQuery}
+                  onChange={(e) => setMerchantQuery(e.target.value)}
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+            </div>
+          </Card>
+
+          {/* Export Panel */}
+          <Card className="card-luxe p-5 space-y-4">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-foreground uppercase tracking-widest">
+                Export Branded Statement
+              </h3>
+              <p className="text-xs text-muted-foreground">Download in physical formats</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                className="w-full text-xs h-9 justify-center gap-1.5"
+                onClick={() => ExportEngine.exportToPdf(reportPayload)}
+              >
+                <FileDown className="h-3.5 w-3.5" /> PDF
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full text-xs h-9 justify-center gap-1.5"
+                onClick={() => ExportEngine.exportToCsv(reportPayload)}
+              >
+                <FileDown className="h-3.5 w-3.5" /> CSV
+              </Button>
+            </div>
+            <Button
+              variant="ghost"
+              className="w-full text-xs h-8 text-muted-foreground justify-center gap-1"
+              onClick={() => ExportEngine.exportToJson(reportPayload)}
+            >
+              Export raw JSON payload
             </Button>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
-        <Card className="card-luxe p-6 md:col-span-2">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
-            <FileText className="h-3.5 w-3.5" />Preview
-          </div>
-          <h3 className="mt-1 font-display text-xl font-semibold">Executive Summary</h3>
-          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Kpi label="Income" value={formatINR(summary.income)} />
-            <Kpi label="Expenses" value={formatINR(summary.expense)} />
-            <Kpi label="Net Cash Flow" value={formatINR(summary.net)} accent={summary.net >= 0 ? "success" : "danger"} />
-            <Kpi label="Savings Rate" value={summary.income > 0 ? `${((summary.net / summary.income) * 100).toFixed(1)}%` : "—"} />
-          </div>
-
-          <h4 className="mt-8 font-display text-sm font-semibold uppercase tracking-widest text-muted-foreground">Spend by category</h4>
-          <div className="mt-3 divide-y divide-border/60">
-            {Object.entries(summary.byCat).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c, v]) => (
-              <div key={c} className="flex items-center justify-between py-2 text-sm">
-                <span>{c}</span>
-                <span className="font-numeric font-medium">{formatINR(v)}</span>
+        {/* Report Display Console */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Header Preview Band */}
+          <WidgetErrorBoundary title="Executive Metrics Summary">
+            <Card className="card-luxe relative overflow-hidden p-6">
+              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-gold to-primary" />
+              <div className="flex flex-col md:flex-row justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                    <FileText className="h-3.5 w-3.5" /> Previewing Statement
+                  </div>
+                  <h2 className="mt-1 font-display text-2xl font-bold text-foreground">
+                    {reportPayload.title}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">{reportPayload.subtitle}</p>
+                </div>
+                <div className="flex items-center gap-2 self-start md:self-center text-xs bg-muted/50 px-3 py-1.5 rounded-full text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" />
+                  <span>
+                    {formatDate(reportPayload.dateRange.from)} to {formatDate(reportPayload.dateRange.to)}
+                  </span>
+                </div>
               </div>
-            ))}
-            {Object.keys(summary.byCat).length === 0 && (
-              <div className="py-4 text-sm text-muted-foreground">No expenses in this period.</div>
-            )}
-          </div>
-        </Card>
+
+              {/* KPI metrics */}
+              <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                {Object.entries(reportPayload.metrics).map(([key, val]) => (
+                  <div key={key} className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {key}
+                    </div>
+                    <div className="mt-1 font-display text-lg font-bold text-foreground">{val}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </WidgetErrorBoundary>
+
+          {/* Chart Section */}
+          {reportPayload.charts && reportPayload.charts.length > 0 && (
+            <WidgetErrorBoundary title="Statement Trends Chart">
+              <Card className="card-luxe p-6">
+                <h3 className="font-display text-sm font-semibold text-foreground uppercase tracking-widest mb-4">
+                  Visual Statement Model
+                </h3>
+                <div className="h-64 flex items-center justify-center">
+                  {reportPayload.charts[0].data.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">No trend data available for filters</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      {reportPayload.charts[0].type === "pie" ? (
+                        <PieChart>
+                          <Pie
+                            data={reportPayload.charts[0].data}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={50}
+                            outerRadius={80}
+                            paddingAngle={3}
+                          >
+                            {reportPayload.charts[0].data.map((_, index) => (
+                              <Cell
+                                key={index}
+                                fill={
+                                  [
+                                    "var(--color-primary)",
+                                    "var(--color-gold)",
+                                    "var(--color-success)",
+                                    "var(--color-warning)",
+                                    "var(--color-peach)",
+                                  ][index % 5]
+                                }
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v: any) => formatINR(v)} />
+                          <Legend />
+                        </PieChart>
+                      ) : reportPayload.charts[0].type === "area" ? (
+                        <AreaChart data={reportPayload.charts[0].data}>
+                          <defs>
+                            <linearGradient id="chartInc" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="chartExp" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="var(--color-gold)" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="var(--color-gold)" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                          <XAxis dataKey="m" stroke="var(--color-muted-foreground)" fontSize={11} />
+                          <YAxis
+                            stroke="var(--color-muted-foreground)"
+                            fontSize={11}
+                            tickFormatter={(v) => formatINR(v, { compact: true })}
+                          />
+                          <Tooltip formatter={(v: any) => formatINR(v)} />
+                          <Area
+                            type="monotone"
+                            dataKey="income"
+                            stroke="var(--color-primary)"
+                            strokeWidth={2}
+                            fill="url(#chartInc)"
+                            name="Income"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="expense"
+                            stroke="var(--color-gold)"
+                            strokeWidth={2}
+                            fill="url(#chartExp)"
+                            name="Expense"
+                          />
+                        </AreaChart>
+                      ) : (
+                        <BarChart data={reportPayload.charts[0].data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                          <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={11} />
+                          <YAxis
+                            stroke="var(--color-muted-foreground)"
+                            fontSize={11}
+                            tickFormatter={(v) => formatINR(v, { compact: true })}
+                          />
+                          <Tooltip formatter={(v: any) => formatINR(v)} />
+                          <Bar dataKey="value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </Card>
+            </WidgetErrorBoundary>
+          )}
+
+          {/* Details Table List */}
+          {reportPayload.sections.map((section, idx) => (
+            <WidgetErrorBoundary key={idx} title={section.title}>
+              <Card className="card-luxe p-6">
+                <h3 className="font-display text-sm font-semibold text-foreground uppercase tracking-widest mb-4">
+                  {section.title}
+                </h3>
+                <div className="overflow-x-auto rounded-lg border border-border/60">
+                  <table className="w-full text-left border-collapse" role="table">
+                    <thead>
+                      <tr className="bg-muted/40 border-b border-border/80 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        {section.headers.map((h, hIdx) => (
+                          <th key={hIdx} className="p-3" role="columnheader">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40 text-xs">
+                      {section.rows.length === 0 ? (
+                        <tr>
+                          <td colSpan={section.headers.length} className="p-8 text-center text-muted-foreground">
+                            No ledger entries found matching criteria.
+                          </td>
+                        </tr>
+                      ) : (
+                        section.rows.map((row, rIdx) => (
+                          <tr key={rIdx} className="hover:bg-muted/15 transition-colors">
+                            {row.map((cell, cIdx) => (
+                              <td key={cIdx} className="p-3 font-medium text-foreground">
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </WidgetErrorBoundary>
+          ))}
+
+          {/* Deterministic Forecast / Growth Engine Section */}
+          <WidgetErrorBoundary title="Forward-Looking Projections">
+            <Card className="card-luxe p-6">
+              <div className="mb-4">
+                <div className="flex items-center gap-1 text-xs text-primary uppercase tracking-wider font-semibold">
+                  <Sparkles className="h-3.5 w-3.5 animate-pulse" /> Growth Modeling Engine
+                </div>
+                <h3 className="mt-0.5 font-display text-base font-semibold text-foreground">
+                  Deterministic Forecast Models
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  6-month future growth trends calculated using average monthly cash flows and allocations.
+                </p>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2 mt-6">
+                {/* Net Worth Forecast Chart */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Net Worth Projection Model
+                  </h4>
+                  <div className="h-44 bg-muted/10 border border-border/60 rounded-xl p-3 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={netWorthForecast}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                        <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={9} />
+                        <YAxis
+                          stroke="var(--color-muted-foreground)"
+                          fontSize={9}
+                          tickFormatter={(v) => formatINR(v, { compact: true })}
+                        />
+                        <Tooltip formatter={(v: any) => formatINR(v)} />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="var(--color-primary)"
+                          strokeWidth={1.5}
+                          fill="var(--color-primary-soft)"
+                          name="Net Worth"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Cash Flow Forecast Chart */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Cash Flow Surplus Projection Model
+                  </h4>
+                  <div className="h-44 bg-muted/10 border border-border/60 rounded-xl p-3 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={cashFlowForecast}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                        <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={9} />
+                        <YAxis
+                          stroke="var(--color-muted-foreground)"
+                          fontSize={9}
+                          tickFormatter={(v) => formatINR(v, { compact: true })}
+                        />
+                        <Tooltip formatter={(v: any) => formatINR(v)} />
+                        <Bar dataKey="income" fill="var(--color-primary)" stackId="cf" name="Income" />
+                        <Bar dataKey="expense" fill="var(--color-gold)" stackId="cf" name="Expense" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </WidgetErrorBoundary>
+        </div>
       </div>
     </div>
   );
 }
 
-function Kpi({ label, value, accent }: { label: string; value: string; accent?: "success" | "danger" }) {
+function ReportsSkeleton() {
   return (
-    <div className="rounded-xl border border-border/60 bg-background p-4">
-      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={`mt-1 font-display text-xl font-semibold ${accent === "success" ? "text-success" : accent === "danger" ? "text-destructive" : ""}`}>
-        {value}
+    <div className="space-y-6 pb-12 animate-pulse p-6 md:p-10">
+      <div className="h-8 w-64 bg-muted rounded mb-2" />
+      <div className="h-4 w-96 bg-muted rounded mb-8" />
+      <div className="grid gap-6 lg:grid-cols-4">
+        <div className="space-y-6 lg:col-span-1">
+          <div className="h-32 bg-muted rounded-xl" />
+          <div className="h-56 bg-muted rounded-xl" />
+          <div className="h-32 bg-muted rounded-xl" />
+        </div>
+        <div className="lg:col-span-3 space-y-6">
+          <div className="h-40 bg-muted rounded-xl" />
+          <div className="h-72 bg-muted rounded-xl" />
+          <div className="h-72 bg-muted rounded-xl" />
+        </div>
       </div>
     </div>
   );
