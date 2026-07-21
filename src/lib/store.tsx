@@ -312,6 +312,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const loaded: State = {
         ...emptyState,
         ...raw,
+        accounts: raw.accounts || [],
+        transactions: raw.transactions || [],
+        budgets: raw.budgets || [],
+        investments: raw.investments || [],
+        loans: raw.loans || [],
+        bills: raw.bills || [],
+        goals: raw.goals || [],
         profile: loadedProfile
       };
       

@@ -119,10 +119,9 @@ function AuthGate() {
     if (storeLoading) return;
 
     const onboardingCompleted = state.profile.onboardingCompleted ?? false;
-    const hasAccounts = state.accounts && state.accounts.length > 0;
     
-    // Show onboarding if not completed OR if no accounts exist
-    const needsOnboarding = !onboardingCompleted || !hasAccounts;
+    // Show onboarding if not completed
+    const needsOnboarding = !onboardingCompleted;
 
     if (needsOnboarding) {
       if (!isOnboardingRoute && !isAuthRoute) {
