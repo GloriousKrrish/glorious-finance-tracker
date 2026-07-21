@@ -57,34 +57,71 @@ export const chatWithAssistant = createServerFn({ method: "POST" })
     FINANCIAL CONTEXT (JSON):
     ${aiContext}`;
 
+    const isDirectGemini = apiKey.startsWith("AQ.") || apiKey.startsWith("AIzaSy");
+
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...data.messages,
-          ],
-        }),
-      });
+      let content = "";
 
-      if (res.status === 429) {
-        throw new Error("Rate limit reached. Please try again in a moment.");
-      }
-      if (res.status === 402) {
-        throw new Error("AI credits exhausted. Please verify credits or API keys.");
-      }
-      if (!res.ok) {
-        throw new Error(`AI request failed: ${res.status}`);
+      if (isDirectGemini) {
+        const geminiContents = data.messages.map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        }));
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: geminiContents,
+              systemInstruction: {
+                parts: [{ text: systemPrompt }],
+              },
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error("Direct Gemini API error output:", errText);
+          throw new Error(`Gemini API failed with status ${response.status}`);
+        }
+
+        const json = (await response.json()) as any;
+        content = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      } else {
+        const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...data.messages,
+            ],
+          }),
+        });
+
+        if (res.status === 429) {
+          throw new Error("Rate limit reached. Please try again in a moment.");
+        }
+        if (res.status === 402) {
+          throw new Error("AI credits exhausted. Please verify credits or API keys.");
+        }
+        if (!res.ok) {
+          throw new Error(`AI request failed: ${res.status}`);
+        }
+
+        const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        content = json.choices?.[0]?.message?.content ?? "";
       }
 
-      const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const content = json.choices?.[0]?.message?.content ?? "";
       return { content };
     } catch (error) {
       console.error("AI Assistant request error:", error);
