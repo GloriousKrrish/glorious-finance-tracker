@@ -223,13 +223,60 @@ export class ValidationEngine {
         break;
       }
 
+      case "bill.created":
+      case "bill.updated": {
+        const bill = event.payload;
+        if (!bill.name || !bill.name.trim()) {
+          return { isValid: false, error: "Bill name is required." };
+        }
+        if (bill.amount <= 0) {
+          return { isValid: false, error: "Bill amount must be positive." };
+        }
+        if (!bill.dueDate || isNaN(Date.parse(bill.dueDate))) {
+          return { isValid: false, error: "A valid due date is required." };
+        }
+        const validFrequencies = ["one-time", "daily", "weekly", "biweekly", "monthly", "quarterly", "half-yearly", "yearly", "custom"];
+        if (bill.paymentFrequency && !validFrequencies.includes(bill.paymentFrequency)) {
+          return { isValid: false, error: "Invalid payment frequency." };
+        }
+        // Account validation
+        if (bill.linkedAccountId) {
+          const accExists = state.accounts.some((a) => a.id === bill.linkedAccountId);
+          if (!accExists) {
+            return { isValid: false, error: "Linked payment account does not exist." };
+          }
+        }
+        // Loan reference validation
+        if (bill.linkedLoanId) {
+          const loanExists = state.loans.some((l) => l.id === bill.linkedLoanId);
+          if (!loanExists) {
+            return { isValid: false, error: "Linked loan does not exist." };
+          }
+        }
+        // Budget reference validation
+        if (bill.linkedBudgetId) {
+          const budgetExists = state.budgets.some((b) => b.id === bill.linkedBudgetId);
+          if (!budgetExists) {
+            return { isValid: false, error: "Linked budget does not exist." };
+          }
+        }
+        // Duplicate check (same name and due date)
+        const duplicate = state.bills.find(
+          (b) => b.id !== bill.id && b.name.toLowerCase() === bill.name.toLowerCase() && b.dueDate === bill.dueDate
+        );
+        if (duplicate) {
+          return { isValid: false, error: `A bill for "${bill.name}" due on ${bill.dueDate} already exists.` };
+        }
+        break;
+      }
+
       case "bill.paid": {
         const { billId, accountId } = event.payload;
         const bill = state.bills.find((b) => b.id === billId);
         if (!bill) {
           return { isValid: false, error: "Target bill does not exist." };
         }
-        if (bill.paid) {
+        if (bill.status === "paid" || bill.paid) {
           return { isValid: false, error: "Bill is already paid." };
         }
         const acc = state.accounts.find((a) => a.id === accountId);

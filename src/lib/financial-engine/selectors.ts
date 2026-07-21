@@ -1,4 +1,4 @@
-import type { State, Loan, Budget, Goal, Transaction, Investment, Account } from "./types";
+import type { State, Loan, Budget, Goal, Transaction, Investment, Account, Bill } from "./types";
 import { CalculationEngine } from "./calculations";
 
 export class SelectorEngine {
@@ -8,6 +8,7 @@ export class SelectorEngine {
   private static cachedBudgets: Map<string, any> = new Map();
   private static cachedGoals: Map<string, any> = new Map();
   private static cachedInvestments: any = null;
+  private static cachedBillsSummary: any = null;
 
   private static cachedTotalAccountBalance: number | null = null;
 
@@ -58,6 +59,9 @@ export class SelectorEngine {
       this.cachedDebtRatio = null;
       this.cachedUpcomingPayments = null;
       this.cachedInterestSummary = null;
+
+      // Clear Bill Caches
+      this.cachedBillsSummary = null;
     }
   }
 
@@ -541,6 +545,122 @@ export class SelectorEngine {
       portfolioInvested: detailed.portfolioInvested,
       unrealizedPl: detailed.unrealizedPl,
       returnPercentage: detailed.returnPercentage,
+    };
+  }
+
+  // --- BILL & OBLIGATION SELECTORS ---
+  public static getBillsDetailed(state: State) {
+    this.checkAndClearCache(state);
+    if (this.cachedBillsSummary === null) {
+      this.cachedBillsSummary = CalculationEngine.calculateBills(state.bills, state.transactions);
+    }
+    return this.cachedBillsSummary;
+  }
+
+  public static getAllBills(state: State): Bill[] {
+    return state.bills;
+  }
+
+  public static getUpcomingBills(state: State): Bill[] {
+    return this.getBillsDetailed(state).upcomingBills;
+  }
+
+  public static getOverdueBills(state: State): Bill[] {
+    return this.getBillsDetailed(state).overdueBills;
+  }
+
+  public static getMissedBills(state: State): Bill[] {
+    return this.getBillsDetailed(state).missedBills;
+  }
+
+  public static getPaidBills(state: State): Bill[] {
+    return this.getBillsDetailed(state).paidBills;
+  }
+
+  public static getTodayBills(state: State): Bill[] {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return state.bills.filter(b => b.dueDate === todayStr && !(b.status === "paid" || b.paid));
+  }
+
+  public static getThisWeekBills(state: State): Bill[] {
+    const now = new Date();
+    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+    startOfWeek.setHours(0, 0, 0, 0);
+    const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 6));
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    return state.bills.filter(b => {
+      const d = new Date(b.dueDate);
+      return d >= startOfWeek && d <= endOfWeek && !(b.status === "paid" || b.paid);
+    });
+  }
+
+  public static getThisMonthBills(state: State): Bill[] {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    return state.bills.filter(b => {
+      const d = new Date(b.dueDate);
+      return d >= firstDay && d <= lastDay && !(b.status === "paid" || b.paid);
+    });
+  }
+
+  public static getRecurringBills(state: State): Bill[] {
+    return state.bills.filter(b => b.paymentFrequency && b.paymentFrequency !== "one-time");
+  }
+
+  public static getSubscriptions(state: State): Bill[] {
+    return state.bills.filter(b => 
+      b.category === "Streaming Subscription" || 
+      b.category === "Membership" || 
+      (b.metadata && b.metadata.isSubscription)
+    );
+  }
+
+  public static getAutoPayBills(state: State): Bill[] {
+    return state.bills.filter(b => b.autoPayEnabled);
+  }
+
+  public static getUpcomingCashRequirement(state: State): number {
+    return this.getBillsDetailed(state).upcomingAmount;
+  }
+
+  public static getSubscriptionSummary(state: State) {
+    const detailed = this.getBillsDetailed(state);
+    const subs = this.getSubscriptions(state);
+    
+    const activeCount = subs.filter(s => !s.metadata?.usageStatus || s.metadata.usageStatus === "active").length;
+    const inactiveCount = subs.filter(s => s.metadata?.usageStatus === "inactive").length;
+    const unusedCount = subs.filter(s => s.metadata?.usageStatus === "unused").length;
+
+    return {
+      monthlyCost: detailed.subscriptionCost,
+      annualCost: detailed.subscriptionCost * 12,
+      activeCount,
+      inactiveCount,
+      unusedCount,
+      totalCount: subs.length,
+      healthScore: subs.length > 0 
+        ? Math.max(10, Math.min(100, 100 - (unusedCount * 25 + inactiveCount * 10))) 
+        : 100
+    };
+  }
+
+  public static getFinancialObligationSummary(state: State) {
+    const detailed = this.getBillsDetailed(state);
+    return {
+      upcomingCount: detailed.upcomingBills.length,
+      paidCount: detailed.paidBills.length,
+      overdueCount: detailed.overdueBills.length,
+      missedCount: detailed.missedBills.length,
+      obligationScore: detailed.financialObligationScore,
+      paymentSuccessRate: detailed.paymentSuccessRate,
+      latePayments: detailed.latePaymentCount,
+      monthlyTotal: detailed.monthlyObligations,
+      yearlyTotal: detailed.yearlyObligations,
+      cashFlowImpact: detailed.cashFlowImpact,
+      upcomingTotal: detailed.upcomingAmount
     };
   }
 }

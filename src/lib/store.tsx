@@ -83,7 +83,29 @@ export interface Investment {
   current?: number;  // legacy backward compatibility
 }
 export interface Loan { id: ID; name: string; type: "home" | "car" | "personal" | "education" | "gold" | "business"; principal: number; outstanding: number; rate: number; emi: number; tenureMonths: number; startDate: string; accountId?: ID; }
-export interface Bill { id: ID; name: string; amount: number; dueDate: string; category: string; recurring: "none" | "monthly" | "yearly" | "weekly"; paid: boolean; }
+export interface Bill {
+  id: ID;
+  name: string;
+  amount: number;
+  dueDate: string;
+  category: string;
+  paymentFrequency: "one-time" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "half-yearly" | "yearly" | "custom";
+  status: "unpaid" | "paid" | "overdue" | "missed";
+  autoPayEnabled: boolean;
+  linkedAccountId?: ID;
+  currency?: string;
+  reminderDays?: number;
+  gracePeriod?: number;
+  recurringRule?: string;
+  merchant?: string;
+  tags?: string[];
+  notes?: string;
+  linkedLoanId?: ID;
+  linkedBudgetId?: ID;
+  metadata?: Record<string, any>;
+  paid?: boolean; // backwards compatibility
+  recurring?: "none" | "monthly" | "yearly" | "weekly"; // backwards compatibility
+}
 export interface Goal {
   id: ID;
   name: string;

@@ -32,9 +32,9 @@ export class DependencyRegistry {
     "loan.deleted": ["loans", "bills", "dashboard", "reports", "ai"],
     "loan.payment": ["loans", "transactions", "accounts", "dashboard", "reports", "ai"],
 
-    "bill.created": ["bills", "dashboard", "reports", "ai"],
-    "bill.updated": ["bills", "dashboard", "reports", "ai"],
-    "bill.deleted": ["bills", "dashboard", "reports", "ai"],
+    "bill.created": ["bills", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "bill.updated": ["bills", "transactions", "accounts", "dashboard", "reports", "ai"],
+    "bill.deleted": ["bills", "transactions", "accounts", "dashboard", "reports", "ai"],
     "bill.paid": ["bills", "transactions", "accounts", "dashboard", "reports", "ai"],
 
     "goal.created": ["goals", "dashboard", "reports", "ai"],

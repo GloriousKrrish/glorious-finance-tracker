@@ -297,17 +297,85 @@ export class RulesEngine {
       }
 
       case "bill.created": {
-        nextState.bills.unshift(event.payload);
+        const bill = { ...event.payload };
+        if (!bill.status) {
+          const isOverdue = new Date(bill.dueDate) < new Date();
+          bill.status = isOverdue ? "overdue" : "unpaid";
+        }
+        bill.paid = bill.status === "paid";
+        
+        if (bill.autoPayEnabled && bill.linkedAccountId && bill.status !== "paid") {
+          bill.status = "paid";
+          bill.paid = true;
+          const txn = {
+            id: uid(),
+            date: bill.dueDate,
+            amount: bill.amount,
+            kind: "expense" as const,
+            category: bill.category,
+            accountId: bill.linkedAccountId,
+            merchant: bill.name,
+            linkedEntityId: bill.id,
+            linkedEntityType: "bill" as const,
+            note: `AutoPay: ${bill.name}`
+          };
+          nextState.transactions.unshift(txn);
+          this.applyTxnEffect(nextState, txn, 1);
+          
+          if (bill.linkedLoanId) {
+            const loan = nextState.loans.find(l => l.id === bill.linkedLoanId);
+            if (loan) {
+              const monthlyRate = (loan.rate / 12) / 100;
+              const interestPaid = loan.outstanding * monthlyRate;
+              const principalPaid = Math.max(0, bill.amount - interestPaid);
+              loan.outstanding = Math.max(0, loan.outstanding - principalPaid);
+            }
+          }
+        }
+        nextState.bills.unshift(bill);
         break;
       }
       case "bill.updated": {
-        const b = event.payload;
-        const idx = nextState.bills.findIndex((x) => x.id === b.id);
-        if (idx !== -1) nextState.bills[idx] = b;
+        const bill = { ...event.payload };
+        const idx = nextState.bills.findIndex((x) => x.id === bill.id);
+        if (idx !== -1) {
+          const oldBill = nextState.bills[idx];
+          if (bill.autoPayEnabled && bill.linkedAccountId && bill.status !== "paid" && !oldBill.paid) {
+            bill.status = "paid";
+            bill.paid = true;
+            const txn = {
+              id: uid(),
+              date: bill.dueDate,
+              amount: bill.amount,
+              kind: "expense" as const,
+              category: bill.category,
+              accountId: bill.linkedAccountId,
+              merchant: bill.name,
+              linkedEntityId: bill.id,
+              linkedEntityType: "bill" as const,
+              note: `AutoPay: ${bill.name}`
+            };
+            nextState.transactions.unshift(txn);
+            this.applyTxnEffect(nextState, txn, 1);
+
+            if (bill.linkedLoanId) {
+              const loan = nextState.loans.find(l => l.id === bill.linkedLoanId);
+              if (loan) {
+                const monthlyRate = (loan.rate / 12) / 100;
+                const interestPaid = loan.outstanding * monthlyRate;
+                const principalPaid = Math.max(0, bill.amount - interestPaid);
+                loan.outstanding = Math.max(0, loan.outstanding - principalPaid);
+              }
+            }
+          }
+          nextState.bills[idx] = bill;
+        }
         break;
       }
       case "bill.deleted": {
-        nextState.bills = nextState.bills.filter((x) => x.id !== event.payload);
+        const id = event.payload;
+        nextState.transactions = nextState.transactions.filter(t => t.linkedEntityId !== id);
+        nextState.bills = nextState.bills.filter((x) => x.id !== id);
         break;
       }
 
@@ -316,7 +384,7 @@ export class RulesEngine {
         const bill = nextState.bills.find((b) => b.id === billId);
         if (bill) {
           bill.paid = true;
-          // Generate automated transaction
+          bill.status = "paid";
           const txn = {
             id: uid(),
             date: date || new Date().toISOString().slice(0, 10),
@@ -325,10 +393,34 @@ export class RulesEngine {
             category: bill.category,
             accountId,
             merchant: bill.name,
-            note: `Auto-recorded payment for bill: ${bill.name}`
+            linkedEntityId: bill.id,
+            linkedEntityType: "bill" as const,
+            note: `Payment for bill: ${bill.name}`
           };
           nextState.transactions.unshift(txn);
           this.applyTxnEffect(nextState, txn, 1);
+
+          if (bill.linkedLoanId) {
+            const loan = nextState.loans.find(l => l.id === bill.linkedLoanId);
+            if (loan) {
+              const monthlyRate = (loan.rate / 12) / 100;
+              const interestPaid = loan.outstanding * monthlyRate;
+              const principalPaid = Math.max(0, bill.amount - interestPaid);
+              loan.outstanding = Math.max(0, loan.outstanding - principalPaid);
+            }
+          }
+
+          if (bill.paymentFrequency && bill.paymentFrequency !== "one-time") {
+            const nextDueDate = this.calculateNextDueDate(bill.dueDate, bill.paymentFrequency);
+            const nextBill = {
+              ...bill,
+              id: uid(),
+              dueDate: nextDueDate,
+              status: "unpaid" as const,
+              paid: false,
+            };
+            nextState.bills.unshift(nextBill);
+          }
         }
         break;
       }
@@ -419,19 +511,43 @@ export class RulesEngine {
 
 
     // Sync Bill if matching name/category and amount
-    if (factor === 1) {
-      const bill = state.bills.find(
-        (b) => !b.paid && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
-      );
+    if (txn.linkedEntityType === "bill" && txn.linkedEntityId) {
+      const bill = state.bills.find(b => b.id === txn.linkedEntityId);
       if (bill) {
-        bill.paid = true;
+        if (factor === 1) {
+          bill.status = "paid";
+          bill.paid = true;
+        } else {
+          bill.status = "unpaid";
+          bill.paid = false;
+          if (bill.linkedLoanId) {
+            const loan = state.loans.find(l => l.id === bill.linkedLoanId);
+            if (loan) {
+              const monthlyRate = (loan.rate / 12) / 100;
+              const interestPaid = loan.outstanding * monthlyRate;
+              const principalPaid = Math.max(0, bill.amount - interestPaid);
+              loan.outstanding += principalPaid;
+            }
+          }
+        }
       }
     } else {
-      const bill = state.bills.find(
-        (b) => b.paid && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
-      );
-      if (bill) {
-        bill.paid = false;
+      if (factor === 1) {
+        const bill = state.bills.find(
+          (b) => (b.status === "unpaid" || !b.paid) && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
+        );
+        if (bill) {
+          bill.status = "paid";
+          bill.paid = true;
+        }
+      } else {
+        const bill = state.bills.find(
+          (b) => (b.status === "paid" || b.paid) && b.category === txn.category && b.name.toLowerCase() === txn.merchant?.toLowerCase()
+        );
+        if (bill) {
+          bill.status = "unpaid";
+          bill.paid = false;
+        }
       }
     }
   }
@@ -448,5 +564,35 @@ export class RulesEngine {
     if (invAccount) {
       invAccount.balance = totalCurrentVal;
     }
+  }
+
+  private static calculateNextDueDate(dateStr: string, frequency: string): string {
+    const d = new Date(dateStr);
+    switch (frequency) {
+      case "daily":
+        d.setDate(d.getDate() + 1);
+        break;
+      case "weekly":
+        d.setDate(d.getDate() + 7);
+        break;
+      case "biweekly":
+        d.setDate(d.getDate() + 14);
+        break;
+      case "monthly":
+        d.setMonth(d.getMonth() + 1);
+        break;
+      case "quarterly":
+        d.setMonth(d.getMonth() + 3);
+        break;
+      case "half-yearly":
+        d.setMonth(d.getMonth() + 6);
+        break;
+      case "yearly":
+        d.setFullYear(d.getFullYear() + 1);
+        break;
+      default:
+        d.setMonth(d.getMonth() + 1);
+    }
+    return d.toISOString().slice(0, 10);
   }
 }

@@ -1,4 +1,4 @@
-import type { State, Transaction, Loan, Budget, Goal, Investment, Account } from "./types";
+import type { State, Transaction, Loan, Budget, Goal, Investment, Account, Bill } from "./types";
 
 export class CalculationEngine {
   // --- LOAN CALCULATIONS ---
@@ -362,6 +362,163 @@ export class CalculationEngine {
       isCompleted,
       daysRemaining,
       monthsRemaining: Math.round(monthsRemaining * 10) / 10,
+    };
+  }
+
+  // --- BILL & OBLIGATION CALCULATIONS ---
+  public static calculateBills(bills: Bill[], transactions: Transaction[]): {
+    upcomingBills: Bill[];
+    paidBills: Bill[];
+    overdueBills: Bill[];
+    missedBills: Bill[];
+    upcomingAmount: number;
+    monthlyObligations: number;
+    yearlyObligations: number;
+    recurringCost: number;
+    subscriptionCost: number;
+    cashFlowImpact: number;
+    financialObligationScore: number;
+    paymentSuccessRate: number;
+    latePaymentCount: number;
+    totalObligationsCount: number;
+  } {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const upcomingBills: Bill[] = [];
+    const paidBills: Bill[] = [];
+    const overdueBills: Bill[] = [];
+    const missedBills: Bill[] = [];
+
+    let upcomingAmount = 0;
+    let monthlyObligations = 0;
+    let yearlyObligations = 0;
+    let recurringCost = 0;
+    let subscriptionCost = 0;
+
+    const billPayments = transactions.filter(t => t.linkedEntityType === "bill");
+    let latePaymentCount = 0;
+
+    bills.forEach(bill => {
+      const isPaid = bill.status === "paid" || bill.paid;
+      const dueDate = new Date(bill.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+
+      const amount = bill.amount;
+      const frequency = bill.paymentFrequency || "monthly";
+
+      let monthlyEquivalent = 0;
+      let yearlyEquivalent = 0;
+
+      switch (frequency) {
+        case "daily":
+          monthlyEquivalent = amount * 30;
+          yearlyEquivalent = amount * 365;
+          break;
+        case "weekly":
+          monthlyEquivalent = amount * 4.33;
+          yearlyEquivalent = amount * 52;
+          break;
+        case "biweekly":
+          monthlyEquivalent = amount * 2.16;
+          yearlyEquivalent = amount * 26;
+          break;
+        case "monthly":
+          monthlyEquivalent = amount;
+          yearlyEquivalent = amount * 12;
+          break;
+        case "quarterly":
+          monthlyEquivalent = amount / 3;
+          yearlyEquivalent = amount * 4;
+          break;
+        case "half-yearly":
+          monthlyEquivalent = amount / 6;
+          yearlyEquivalent = amount * 2;
+          break;
+        case "yearly":
+          monthlyEquivalent = amount / 12;
+          yearlyEquivalent = amount;
+          break;
+        case "one-time":
+        default:
+          const isThisMonth = dueDate.getMonth() === today.getMonth() && dueDate.getFullYear() === today.getFullYear();
+          monthlyEquivalent = isThisMonth ? amount : 0;
+          yearlyEquivalent = amount;
+          break;
+      }
+
+      monthlyObligations += monthlyEquivalent;
+      yearlyObligations += yearlyEquivalent;
+
+      if (frequency !== "one-time") {
+        recurringCost += monthlyEquivalent;
+      }
+
+      const isSubscription = bill.category === "Streaming Subscription" || 
+                             bill.category === "Membership" || 
+                             (bill.metadata && bill.metadata.isSubscription);
+      if (isSubscription) {
+        subscriptionCost += monthlyEquivalent;
+      }
+
+      if (isPaid) {
+        paidBills.push(bill);
+        const paymentTx = billPayments.find(t => t.linkedEntityId === bill.id);
+        if (paymentTx) {
+          const payDate = new Date(paymentTx.date);
+          payDate.setHours(0, 0, 0, 0);
+          if (payDate > dueDate) {
+            latePaymentCount++;
+          }
+        }
+      } else {
+        const timeDiff = dueDate.getTime() - today.getTime();
+        const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+
+        if (daysDiff < 0) {
+          const gracePeriod = bill.gracePeriod || 0;
+          if (Math.abs(daysDiff) > gracePeriod) {
+            missedBills.push(bill);
+            bill.status = "missed";
+          } else {
+            overdueBills.push(bill);
+            bill.status = "overdue";
+          }
+        } else {
+          upcomingBills.push(bill);
+          upcomingAmount += amount;
+        }
+      }
+    });
+
+    const totalObligationsCount = bills.length;
+    const paymentSuccessRate = totalObligationsCount > 0 
+      ? Math.max(0, 100 - ((missedBills.length + latePaymentCount) / totalObligationsCount) * 100) 
+      : 100;
+
+    let financialObligationScore = 100;
+    financialObligationScore -= missedBills.length * 15;
+    financialObligationScore -= overdueBills.length * 5;
+    financialObligationScore -= latePaymentCount * 2;
+    financialObligationScore = Math.max(10, Math.min(100, financialObligationScore));
+
+    const cashFlowImpact = monthlyObligations;
+
+    return {
+      upcomingBills,
+      paidBills,
+      overdueBills,
+      missedBills,
+      upcomingAmount,
+      monthlyObligations,
+      yearlyObligations,
+      recurringCost,
+      subscriptionCost,
+      cashFlowImpact,
+      financialObligationScore,
+      paymentSuccessRate,
+      latePaymentCount,
+      totalObligationsCount
     };
   }
 
@@ -768,6 +925,11 @@ export class CalculationEngine {
       const pct = g.target ? (g.saved / g.target) * 100 : 0;
       if (pct >= 100) score += 5;
       else if (pct >= 50) score += 3;
+    });
+
+    state.bills.forEach((b) => {
+      if (b.status === "missed") score -= 15;
+      else if (b.status === "overdue") score -= 5;
     });
 
     const healthScore = Math.max(10, Math.min(100, score));
