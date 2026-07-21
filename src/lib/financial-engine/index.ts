@@ -43,3 +43,27 @@ export type {
   ScenarioResult,
   GoalPlan
 } from "./intelligence";
+
+// Phase 12 Data Integration additions
+export {
+  NormalizationEngine,
+  DuplicateDetectionEngine,
+  CategoryEngine,
+  ImportEngine,
+  OcrEngine,
+  BankSyncEngine,
+  ReconciliationEngine,
+  AttachmentEngine,
+  IciciAdapter,
+  HdfcAdapter,
+  SbiAdapter,
+  AxisAdapter
+} from "./integration";
+export type {
+  ImportItem,
+  ImportPreviewPayload,
+  OcrResult,
+  ReconciliationReport,
+  BankSyncConnection,
+  BankAdapter
+} from "./integration";

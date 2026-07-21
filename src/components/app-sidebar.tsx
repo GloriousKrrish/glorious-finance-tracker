@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, TrendingUp,
   Landmark, Receipt, Target, Settings, Sparkles, FileText, ShieldCheck, LogOut, MessageSquareText,
+  RefreshCw,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -24,6 +25,7 @@ const wealth = [
 ];
 const workspace = [
   { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Sync & OCR", url: "/sync", icon: RefreshCw },
   { title: "Sessions", url: "/sessions", icon: ShieldCheck },
   { title: "Settings", url: "/settings", icon: Settings },
 ];

@@ -22,6 +22,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SyncRouteImport } from './routes/sync'
 import { Route as TransactionsRouteImport } from './routes/transactions'
 
 const IndexRoute = IndexRouteImport.update({
@@ -89,6 +90,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SyncRoute = SyncRouteImport.update({
+  id: '/sync',
+  path: '/sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TransactionsRoute = TransactionsRouteImport.update({
   id: '/transactions',
   path: '/transactions',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
+  '/sync': typeof SyncRoute
   '/transactions': typeof TransactionsRoute
 }
 export interface FileRoutesByTo {
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
+  '/sync': typeof SyncRoute
   '/transactions': typeof TransactionsRoute
 }
 export interface FileRoutesById {
@@ -142,6 +150,7 @@ export interface FileRoutesById {
   '/reports': typeof ReportsRoute
   '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
+  '/sync': typeof SyncRoute
   '/transactions': typeof TransactionsRoute
 }
 export interface FileRouteTypes {
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sessions'
     | '/settings'
+    | '/sync'
     | '/transactions'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sessions'
     | '/settings'
+    | '/sync'
     | '/transactions'
   id:
     | '__root__'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sessions'
     | '/settings'
+    | '/sync'
     | '/transactions'
   fileRoutesById: FileRoutesById
 }
@@ -209,6 +221,7 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute
   SessionsRoute: typeof SessionsRoute
   SettingsRoute: typeof SettingsRoute
+  SyncRoute: typeof SyncRoute
   TransactionsRoute: typeof TransactionsRoute
 }
 
@@ -305,6 +318,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sync': {
+      id: '/sync'
+      path: '/sync'
+      fullPath: '/sync'
+      preLoaderRoute: typeof SyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/transactions': {
       id: '/transactions'
       path: '/transactions'
@@ -329,6 +349,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   SessionsRoute: SessionsRoute,
   SettingsRoute: SettingsRoute,
+  SyncRoute: SyncRoute,
   TransactionsRoute: TransactionsRoute,
 }
 export const routeTree = rootRouteImport
