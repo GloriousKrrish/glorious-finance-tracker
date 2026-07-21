@@ -122,20 +122,23 @@ export function ChecklistWidget() {
             <X className="h-4 w-4" />
           </button>
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-2 max-w-xl">
-              <div className="flex items-center gap-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gold/10 text-gold">
-                  <Sparkles className="h-3.5 w-3.5" />
+          <div className="space-y-6">
+            {/* Header & Progress */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gold/10 text-gold">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </div>
+                  <h3 className="font-display text-lg font-bold text-foreground">Complete Your Workspace</h3>
                 </div>
-                <h3 className="font-display text-lg font-bold text-foreground">Complete Your Workspace</h3>
+                <p className="text-sm text-muted-foreground">
+                  Set up your workspace with these basic steps to get accurate wealth reporting and AI insights.
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Set up your workspace with these basic steps to get accurate wealth reporting and AI insights.
-              </p>
 
               {/* Progress Section */}
-              <div className="space-y-1.5 pt-2">
+              <div className="space-y-1.5 min-w-[240px] md:w-80">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-primary font-display">Setup Progress</span>
                   <span className="font-numeric text-gold">{progressPercent}%</span>
@@ -152,7 +155,7 @@ export function ChecklistWidget() {
             </div>
 
             {/* Checklist Items Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full">
               {checklistItems.map((item, idx) => {
                 const Icon = item.icon;
                 return (

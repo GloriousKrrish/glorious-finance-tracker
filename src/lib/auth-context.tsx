@@ -28,11 +28,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       setSession(data.session);
       setLoading(false);
+    }).catch((err) => {
+      console.error("[Auth] Failed to restore session:", err);
+      if (!mounted) return;
+      setSession(null);
+      setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED" && event !== "INITIAL_SESSION") return;
       setSession(s);
+      if (event === "INITIAL_SESSION") {
+        setLoading(false);
+      }
     });
 
     return () => { mounted = false; sub.subscription.unsubscribe(); };

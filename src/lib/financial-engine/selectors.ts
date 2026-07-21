@@ -663,4 +663,339 @@ export class SelectorEngine {
       upcomingTotal: detailed.upcomingAmount
     };
   }
+
+  // --- NEW MEMOIZED SELECTORS FOR WIDGETS & INSIGHTS ---
+
+  public static getDashboardOverview(state: State) {
+    const db = this.getDashboard(state);
+    const portfolio = this.getPortfolioSummary(state);
+    return {
+      netWorth: db.netWorth,
+      totalAssets: db.totalAssets,
+      totalLiabilities: db.totalLiabilities,
+      cashBalance: db.cashBalance,
+      investmentBalance: db.investmentBalance,
+      loanOutstanding: db.loanOutstanding,
+      monthlyIncome: db.monthlyIncome,
+      monthlyExpense: db.monthlyExpense,
+      savingsRate: db.savingsRate,
+      healthScore: db.healthScore,
+      unrealizedPl: portfolio.unrealizedPl,
+    };
+  }
+
+  public static getNetWorthSummary(state: State) {
+    const db = this.getDashboard(state);
+    return {
+      netWorth: db.netWorth,
+      totalAssets: db.totalAssets,
+      totalLiabilities: db.totalLiabilities,
+    };
+  }
+
+  public static getRecentTransactions(state: State, limit: number = 6) {
+    this.checkAndClearCache(state);
+    return this.getLatestTransactions(state, limit);
+  }
+
+  public static getTopExpenses(state: State, limit: number = 6) {
+    this.checkAndClearCache(state);
+    const txns = state.transactions ?? [];
+    const map = new Map<string, number>();
+    txns
+      .filter((t) => t.kind === "expense")
+      .forEach((t) => map.set(t.category, (map.get(t.category) || 0) + t.amount));
+    
+    return Array.from(map.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, limit);
+  }
+
+  public static getLargestAssets(state: State) {
+    const accounts = state.accounts ?? [];
+    const investments = state.investments ?? [];
+    
+    const assets: { name: string; value: number; type: string }[] = [];
+    
+    accounts
+      .filter((a) => a.type !== "credit_card")
+      .forEach((a) => assets.push({ name: a.name, value: a.balance ?? 0, type: "Account" }));
+      
+    investments.forEach((i) => {
+      const units = i.units ?? 0;
+      const val = units > 0 ? units * (i.currentPrice ?? 0) : (i.current ?? 0);
+      if (val > 0) {
+        assets.push({ name: i.name, value: val, type: "Investment" });
+      }
+    });
+    
+    return assets.sort((a, b) => b.value - a.value);
+  }
+
+  public static getLargestLiabilities(state: State) {
+    const accounts = state.accounts ?? [];
+    const loans = state.loans ?? [];
+    
+    const liabilities: { name: string; value: number; type: string }[] = [];
+    
+    accounts
+      .filter((a) => a.type === "credit_card" && a.balance < 0)
+      .forEach((a) => liabilities.push({ name: a.name, value: Math.abs(a.balance), type: "Credit Card" }));
+      
+    loans.forEach((l) => {
+      const metrics = CalculationEngine.calculateLoan(l, state.transactions ?? []);
+      if (metrics.outstandingBalance > 0) {
+        liabilities.push({ name: l.name, value: metrics.outstandingBalance, type: "Loan" });
+      }
+    });
+    
+    return liabilities.sort((a, b) => b.value - a.value);
+  }
+
+  public static getMonthlyTrends(state: State, monthCount: number = 6) {
+    const transactions = state.transactions ?? [];
+    const buckets: { m: string; income: number; expense: number; key: string }[] = [];
+    
+    for (let i = monthCount - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1); // prevent month rollover issues
+      d.setMonth(d.getMonth() - i);
+      const k = `${d.getFullYear()}-${d.getMonth()}`;
+      buckets.push({
+        m: d.toLocaleDateString("en-IN", { month: "short" }),
+        income: 0,
+        expense: 0,
+        key: k
+      });
+    }
+    
+    transactions.forEach((t) => {
+      if (!t.date) return;
+      const d = new Date(t.date);
+      const k = `${d.getFullYear()}-${d.getMonth()}`;
+      const bucket = buckets.find((b) => b.key === k);
+      if (bucket) {
+        if (t.kind === "income") bucket.income += t.amount ?? 0;
+        if (t.kind === "expense") bucket.expense += t.amount ?? 0;
+      }
+    });
+    
+    return buckets;
+  }
+
+  public static getChecklistProgress(state: State, simulatedImport: boolean = false) {
+    const accounts = state.accounts ?? [];
+    const transactions = state.transactions ?? [];
+    const budgets = state.budgets ?? [];
+    const goals = state.goals ?? [];
+    const investments = state.investments ?? [];
+
+    const items = [
+      { id: "account", completed: accounts.length > 0 },
+      { id: "import", completed: simulatedImport || transactions.length > 0 },
+      { id: "transaction", completed: transactions.length > 0 },
+      { id: "budget", completed: budgets.length > 0 },
+      { id: "goal", completed: goals.length > 0 },
+      { id: "investment", completed: investments.length > 0 }
+    ];
+
+    const completedCount = items.filter((item) => item.completed).length;
+    const progressPercent = Math.round((completedCount / items.length) * 100);
+
+    return {
+      completedCount,
+      totalCount: items.length,
+      progressPercent,
+      items
+    };
+  }
+
+  public static getQuickInsights(state: State) {
+    const insights: { type: "info" | "warning" | "success"; message: string; category: string }[] = [];
+    const db = this.getDashboard(state);
+    const portfolio = this.getPortfolioSummary(state);
+    const billsSummary = this.getFinancialObligationSummary(state);
+    const activeLoans = this.getActiveLoans(state);
+    const budgets = this.getBudgets(state);
+    const goals = this.getGoals(state);
+
+    // 1. Emergency Fund Status
+    const liquidBalance = (state.accounts ?? [])
+      .filter((a) => a.type !== "credit_card" && a.type !== "investment")
+      .reduce((sum, a) => sum + (a.balance ?? 0), 0);
+    const avgExpense = Math.max(10000, db.monthlyExpense);
+    const emergencyMonths = liquidBalance / avgExpense;
+
+    if (emergencyMonths < 3) {
+      insights.push({
+        type: "warning",
+        message: `Emergency fund covers only ${emergencyMonths.toFixed(1)} months of expenses. Target is 6 months.`,
+        category: "Savings"
+      });
+    } else if (emergencyMonths >= 6) {
+      insights.push({
+        type: "success",
+        message: "Strong emergency fund coverage of over 6 months of expenses.",
+        category: "Savings"
+      });
+    }
+
+    // 2. Loan Burden
+    const emis = activeLoans.reduce((sum, l) => sum + l.emi, 0);
+    if (db.monthlyIncome > 0 && (emis / db.monthlyIncome) > 0.35) {
+      insights.push({
+        type: "warning",
+        message: `Loan EMIs consume ${(emis / db.monthlyIncome * 100).toFixed(0)}% of monthly income. Try to keep this under 35%.`,
+        category: "Debt"
+      });
+    }
+
+    // 3. Budgets overspent
+    const overspentBudgets = budgets.filter((b) => b.metrics.spent > b.limit);
+    if (overspentBudgets.length > 0) {
+      insights.push({
+        type: "warning",
+        message: `Budget overspending detected in ${overspentBudgets.length} categories.`,
+        category: "Budget"
+      });
+    }
+
+    // 4. Investment concentration risk
+    if (portfolio.diversificationScore < 40 && (state.investments ?? []).length > 0) {
+      insights.push({
+        type: "warning",
+        message: "High investment concentration risk. Consider diversifying holdings.",
+        category: "Investments"
+      });
+    }
+
+    // 5. Goal Contribution pace
+    const laggingGoals = goals.filter((g) => g.metrics.goalHealth === "Critical" && !g.metrics.isCompleted);
+    if (laggingGoals.length > 0) {
+      insights.push({
+        type: "warning",
+        message: `Savings pace is lagging for ${laggingGoals.length} critical financial goals.`,
+        category: "Goals"
+      });
+    }
+
+    // 6. Cash Flow status
+    const netSavings = db.monthlyIncome - db.monthlyExpense;
+    if (db.monthlyIncome > 0 && netSavings < 0) {
+      insights.push({
+        type: "warning",
+        message: "Negative cash flow this month. Monthly expenses exceed income.",
+        category: "Cash Flow"
+      });
+    } else if (db.monthlyIncome > 0 && db.savingsRate > 35) {
+      insights.push({
+        type: "success",
+        message: `High savings rate of ${db.savingsRate.toFixed(0)}% achieved this month!`,
+        category: "Cash Flow"
+      });
+    }
+
+    // 7. Upcoming bills vs balance
+    if (billsSummary.upcomingTotal > liquidBalance) {
+      insights.push({
+        type: "warning",
+        message: "Upcoming bills exceed total checking and cash balance. Top up accounts to avoid late fees.",
+        category: "Bills"
+      });
+    }
+
+    return insights;
+  }
+
+  public static getRecommendationSummary(state: State) {
+    const insights = this.getQuickInsights(state);
+    return insights.map((ins) => ({
+      title: ins.category,
+      description: ins.message,
+      priority: ins.type === "warning" ? "high" : "low",
+    }));
+  }
+
+  public static getCalendarSummary(state: State) {
+    const transactions = state.transactions ?? [];
+    const bills = state.bills ?? [];
+
+    const events: { date: string; title: string; amount: number; type: "transaction" | "bill"; kind?: string }[] = [];
+
+    transactions.forEach((t) => {
+      if (!t.date) return;
+      events.push({
+        date: t.date.slice(0, 10),
+        title: t.merchant || t.category,
+        amount: t.amount ?? 0,
+        type: "transaction",
+        kind: t.kind
+      });
+    });
+
+    bills.forEach((b) => {
+      if (!b.dueDate) return;
+      events.push({
+        date: b.dueDate,
+        title: b.name,
+        amount: b.amount ?? 0,
+        type: "bill",
+        kind: b.status
+      });
+    });
+
+    // Group by date
+    const grouped: Record<string, typeof events> = {};
+    events.forEach((ev) => {
+      if (!grouped[ev.date]) {
+        grouped[ev.date] = [];
+      }
+      grouped[ev.date].push(ev);
+    });
+
+    return grouped;
+  }
+
+  public static getNotificationSummary(state: State) {
+    const notifications: { id: string; type: "alert" | "info" | "success"; title: string; message: string; date: string }[] = [];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const bills = state.bills ?? [];
+    const budgets = state.budgets ?? [];
+
+    bills.forEach((b) => {
+      if (b.dueDate === todayStr && !(b.status === "paid" || b.paid)) {
+        notifications.push({
+          id: `bill-${b.id}`,
+          type: "alert",
+          title: "Bill Due Today",
+          message: `Your bill "${b.name}" for ${b.amount} is due today.`,
+          date: todayStr
+        });
+      } else if (b.status === "overdue" || b.status === "missed") {
+        notifications.push({
+          id: `bill-overdue-${b.id}`,
+          type: "alert",
+          title: "Overdue Bill Payment",
+          message: `Bill "${b.name}" was due on ${b.dueDate} (${b.status}).`,
+          date: b.dueDate
+        });
+      }
+    });
+
+    budgets.forEach((b) => {
+      const metrics = CalculationEngine.calculateBudget(b, state.transactions ?? []);
+      if (metrics.spent > b.limit) {
+        notifications.push({
+          id: `budget-${b.id}`,
+          type: "alert",
+          title: "Budget Exceeded",
+          message: `You have exceeded your ${b.category} budget limit of ${b.limit}.`,
+          date: todayStr
+        });
+      }
+    });
+
+    return notifications;
+  }
 }

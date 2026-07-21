@@ -870,32 +870,47 @@ export class CalculationEngine {
     savingsRate: number;
     healthScore: number;
   } {
-    const cashBalance = state.accounts
-      .filter((a) => a.type !== "credit_card" && a.type !== "investment")
-      .reduce((sum, a) => sum + a.balance, 0);
+    // Null-safety: coalesce all arrays to prevent crashes from legacy/partial state
+    const accounts = state.accounts ?? [];
+    const investments = state.investments ?? [];
+    const loans = state.loans ?? [];
+    const transactions = state.transactions ?? [];
+    const budgets = state.budgets ?? [];
+    const goals = state.goals ?? [];
+    const bills = state.bills ?? [];
 
-    const investmentBalance = state.investments.reduce((sum, inv) => sum + ((inv.units ?? 0) > 0 ? (inv.units ?? 0) * (inv.currentPrice ?? 0) : (inv.current ?? 0)), 0);
-    const loanOutstanding = state.loans.reduce((sum, l) => {
-      const metrics = CalculationEngine.calculateLoan(l, state.transactions);
-      return sum + metrics.outstandingBalance;
+    const cashBalance = accounts
+      .filter((a) => a.type !== "credit_card" && a.type !== "investment")
+      .reduce((sum, a) => sum + (a.balance ?? 0), 0);
+
+    const investmentBalance = investments.reduce((sum, inv) => sum + ((inv.units ?? 0) > 0 ? (inv.units ?? 0) * (inv.currentPrice ?? 0) : (inv.current ?? 0)), 0);
+    const loanOutstanding = loans.reduce((sum, l) => {
+      try {
+        const metrics = CalculationEngine.calculateLoan(l, transactions);
+        return sum + metrics.outstandingBalance;
+      } catch (e) {
+        console.error("[CalculationEngine] Error calculating loan:", l.id, e);
+        return sum + (l.outstanding ?? 0);
+      }
     }, 0);
     
-    const ccLiabilities = state.accounts
+    const ccLiabilities = accounts
       .filter((a) => a.type === "credit_card")
-      .reduce((sum, a) => sum + Math.abs(a.balance), 0);
+      .reduce((sum, a) => sum + Math.abs(a.balance ?? 0), 0);
 
     const totalAssets = cashBalance + investmentBalance;
     const totalLiabilities = loanOutstanding + ccLiabilities;
     const netWorth = totalAssets - totalLiabilities;
 
     const now = new Date();
-    const currentMonthTx = state.transactions.filter((t) => {
+    const currentMonthTx = transactions.filter((t) => {
+      if (!t.date) return false;
       const d = new Date(t.date);
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
 
-    const monthlyIncome = currentMonthTx.filter((t) => t.kind === "income").reduce((sum, t) => sum + t.amount, 0);
-    const monthlyExpense = currentMonthTx.filter((t) => t.kind === "expense").reduce((sum, t) => sum + t.amount, 0);
+    const monthlyIncome = currentMonthTx.filter((t) => t.kind === "income").reduce((sum, t) => sum + (t.amount ?? 0), 0);
+    const monthlyExpense = currentMonthTx.filter((t) => t.kind === "expense").reduce((sum, t) => sum + (t.amount ?? 0), 0);
     const savingsRate = monthlyIncome > 0 ? Math.max(0, ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100) : 0;
 
     let score = 75;
@@ -914,20 +929,24 @@ export class CalculationEngine {
       score += 10;
     }
 
-    state.budgets.forEach((b) => {
-      const metrics = CalculationEngine.calculateBudget(b, state.transactions);
-      if (metrics.spent > b.limit) {
-        score -= 10;
+    budgets.forEach((b) => {
+      try {
+        const metrics = CalculationEngine.calculateBudget(b, transactions);
+        if (metrics.spent > b.limit) {
+          score -= 10;
+        }
+      } catch (e) {
+        console.error("[CalculationEngine] Error calculating budget:", b.id, e);
       }
     });
 
-    state.goals.forEach((g) => {
+    goals.forEach((g) => {
       const pct = g.target ? (g.saved / g.target) * 100 : 0;
       if (pct >= 100) score += 5;
       else if (pct >= 50) score += 3;
     });
 
-    state.bills.forEach((b) => {
+    bills.forEach((b) => {
       if (b.status === "missed") score -= 15;
       else if (b.status === "overdue") score -= 5;
     });

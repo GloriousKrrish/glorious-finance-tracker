@@ -7,3 +7,5 @@ export { CalculationEngine } from "./calculations";
 export { SelectorEngine } from "./selectors";
 export { SynchronizationEngine } from "./sync";
 export { AutomationEngine } from "./automation";
+export { FinancialHealthEngine } from "./health";
+export type { FinancialHealthMetrics } from "./health";

@@ -292,11 +292,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     setLoading(true);
     
+    // Safety timeout: if hydration takes too long, fall back to empty state
+    const safetyTimeout = setTimeout(() => {
+      if (cancelled) return;
+      console.warn("[Store] Hydration timed out after 15s — loading empty state");
+      const fallback = {
+        ...emptyState,
+        profile: {
+          ...emptyState.profile,
+          email: user.email ?? "",
+          name: user.user_metadata?.full_name ?? emptyState.profile.name
+        }
+      };
+      dispatch({ type: "hydrate", payload: fallback });
+      initialLoad.current = true;
+      setLoading(false);
+    }, 15000);
+
     Promise.all([
       supabase.from("user_finance_state").select("state").eq("user_id", user.id).maybeSingle(),
       supabase.from("profiles").select("onboarding_completed, onboarding_step").eq("id", user.id).maybeSingle()
     ]).then(([stateResult, profileResult]) => {
       if (cancelled) return;
+      clearTimeout(safetyTimeout);
+      
+      // Handle query-level errors gracefully
+      if (stateResult.error) {
+        console.error("[Store] Error loading finance state:", stateResult.error);
+      }
+      if (profileResult.error) {
+        console.error("[Store] Error loading profile:", profileResult.error);
+      }
       
       const raw = (stateResult.data?.state ?? {}) as Partial<State>;
       const pData = profileResult.data;
@@ -336,9 +362,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       initialLoad.current = true;
       setLoading(false);
+    }).catch((err) => {
+      if (cancelled) return;
+      clearTimeout(safetyTimeout);
+      console.error("[Store] Failed to hydrate from Supabase:", err);
+      // Fall back to empty state so the app is still usable
+      const fallback = {
+        ...emptyState,
+        profile: {
+          ...emptyState.profile,
+          email: user.email ?? "",
+          name: user.user_metadata?.full_name ?? emptyState.profile.name
+        }
+      };
+      dispatch({ type: "hydrate", payload: fallback });
+      initialLoad.current = true;
+      setLoading(false);
     });
     
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(safetyTimeout); };
   }, [user?.id, authLoading]);
 
   const triggerSave = () => {
