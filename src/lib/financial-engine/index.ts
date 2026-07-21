@@ -67,3 +67,30 @@ export type {
   BankSyncConnection,
   BankAdapter
 } from "./integration";
+
+// Phase 13 Planning & Tax Engine additions
+export {
+  TaxEngine,
+  WealthEngine,
+  RetirementEngine,
+  GoalOptimizationEngine,
+  DebtOptimizationEngine,
+  InsuranceAnalysis,
+  FinancialCalendar,
+  ScenarioPlanning as ScenarioPlanningEngine
+} from "./planning";
+export type {
+  TaxDeductionsInput,
+  TaxCalculationResult,
+  TaxPlan,
+  AssetAllocationMix,
+  WealthSimulationPoint,
+  WealthAuditResult,
+  RetirementProjection,
+  GoalOptimizationItem,
+  DebtStrategyPoint,
+  DebtOptimizationReport,
+  InsuranceAudit,
+  CalendarEvent,
+  ScenarioResult as ScenarioPlanningResult
+} from "./planning";
