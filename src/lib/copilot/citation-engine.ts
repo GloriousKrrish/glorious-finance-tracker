@@ -8,28 +8,28 @@ export class CitationEngine {
   public static extractCitations(responseText: string, kbTitle?: string): CitationRef[] {
     const citations: CitationRef[] = [];
 
-    // Financial OS Metric citations
+    // User-friendly reference citations
     if (/\b(net worth|total assets|liabilities|balance)\b/i.test(responseText)) {
       citations.push({
         sourceType: "financial_os",
-        title: "Financial OS Ledger & Accounts Selector",
-        referenceTag: "FOS:StateSelector"
+        title: "Ledger Balance Data",
+        referenceTag: "Ledger Data"
       });
     }
 
     if (/\b(budget|limit|spent|overspending)\b/i.test(responseText)) {
       citations.push({
         sourceType: "financial_os",
-        title: "Financial OS Budget Engine & Utilization Metrics",
-        referenceTag: "FOS:BudgetMetrics"
+        title: "Budget Tracking Metrics",
+        referenceTag: "Budget Metrics"
       });
     }
 
     if (kbTitle) {
       citations.push({
         sourceType: "knowledge_base",
-        title: `Finance Knowledge Base: ${kbTitle}`,
-        referenceTag: "KB:LocalArticle"
+        title: `Financial Knowledge Base: ${kbTitle}`,
+        referenceTag: "Knowledge Base"
       });
     }
 

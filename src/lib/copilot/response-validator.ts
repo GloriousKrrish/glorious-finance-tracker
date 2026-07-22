@@ -10,9 +10,9 @@ export class ResponseValidator {
     const violations: string[] = [];
 
     // 1. Mandatory Disclaimer check
-    const disclaimer = "\n\n*Educational Guidance Disclaimer: GloriousFinance Copilot provides informational explanations grounded in your Financial OS ledger. It does not provide regulated financial or legal tax advice.*";
+    const disclaimer = "\n\n*Disclaimer: GloriousFinance Copilot provides educational financial guidance and analysis based on your ledger parameters. For legally binding tax filing or regulated financial advice, please consult a certified professional.*";
 
-    if (!sanitized.includes("Educational Guidance Disclaimer")) {
+    if (!sanitized.includes("Disclaimer:")) {
       sanitized += disclaimer;
     }
 

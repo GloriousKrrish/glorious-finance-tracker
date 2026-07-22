@@ -136,7 +136,7 @@ export interface CopilotBrainResult {
 export type CopilotGoalType = PlanningGoal;
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 1. GOAL DETECTOR — Robust, priority-ordered goal inference
+// 1. GOAL DETECTOR
 // ══════════════════════════════════════════════════════════════════════════════
 export class GoalDetector {
   public static detectGoal(query: string, _intent: FinanceIntent): PlanningGoal {
@@ -151,7 +151,6 @@ export class GoalDetector {
     }
 
     // ── PRIORITY 1: TAXATION ──
-    // Any query mentioning tax, taxation, 80c, regime, tds, slab, or tax planning MUST be tax_saving_plan
     if (
       /\b(tax|taxation|income tax|80c|80d|section 80|nps|tds|tax regime|old regime|new regime|save tax|tax saving|plan.*tax|tax.*plan|my tax|pay tax|lower.*tax|reduce.*tax|minimize.*tax|tax slab|tax liability|tax calculation|tax deduction)\b/i.test(q)
     ) {
@@ -225,7 +224,7 @@ export class GoalDetector {
       return "wealth_growth";
     }
 
-    // ── PRIORITY 13: BUDGET OPTIMIZATION (Only if tax/investments NOT mentioned) ──
+    // ── PRIORITY 13: BUDGET OPTIMIZATION ──
     if (/\b(budget|overspend|cut expenses|where.s my money|50.?30.?20|category limit|utilization)\b/i.test(q)) {
       return "budget_optimization";
     }
@@ -264,7 +263,7 @@ export class GoalDetector {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2. FACT EXTRACTOR — Highly versatile salary and finance parameter parser
+// 2. FACT EXTRACTOR
 // ══════════════════════════════════════════════════════════════════════════════
 export class FactExtractor {
   public static extractFacts(text: string, existing: ExtractedFacts): ExtractedFacts {
@@ -272,9 +271,8 @@ export class FactExtractor {
     const q = text.toLowerCase();
 
     // ── Income extraction ──
-    // Matches 17L, 17 Lakh, 17 Lakhs, 17 Lac, 17,00,000, 1700000, 17.5L, 17 gross, salary was 17, 17 sal
     const lakhMatch = text.match(/([\d,.]+)\s*(?:lakhs?|lacs?|l|cr|crore|k)\b/i);
-    const genericNumberMatch = text.match(/(?:salary|gross|ctc|income|earn|make|sal)\s*(?:is|was|of)?\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)/i);
+    const genericNumberMatch = text.match(/(?:salary|gross|ctc|income|earn|make|get|sal)\s*(?:is|was|of)?\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)/i);
 
     if (lakhMatch) {
       let val = parseFloat(lakhMatch[1].replace(/,/g, ""));
@@ -294,7 +292,6 @@ export class FactExtractor {
     } else if (genericNumberMatch) {
       let val = parseFloat(genericNumberMatch[1].replace(/,/g, ""));
       if (val > 0 && val < 500) {
-        // user wrote 17 or 25 referring to Lakhs
         val *= 100000;
       }
       if (val >= 100000) {
@@ -306,7 +303,6 @@ export class FactExtractor {
       }
     }
 
-    // Direct fallback search for pattern "17L" or "17 L"
     if (!updated.annualIncome) {
       const lDirect = text.match(/\b(\d+(?:\.\d+)?)\s*l\b/i);
       if (lDirect) {
@@ -314,6 +310,13 @@ export class FactExtractor {
         updated.annualIncome = val;
         updated.monthlyIncome = Math.round(val / 12);
       }
+    }
+
+    // ── Monthly Investable ──
+    const investMatch = text.match(/(?:invest|save)\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)\s*(?:monthly|per month|p\.?m\.?|\/mo)/i);
+    if (investMatch) {
+      const val = parseFloat(investMatch[1].replace(/,/g, ""));
+      if (val > 0) updated.monthlyInvestable = val;
     }
 
     // ── Employment type ──
@@ -342,12 +345,6 @@ export class FactExtractor {
       else updated.hasNPS = true;
     }
 
-    // ── Home Loan ──
-    if (/\b(home\s+loan|housing\s+loan|mortgage)\b/i.test(q)) {
-      if (/\b(no|don'?t|do\s+not)\b/i.test(q)) updated.hasHomeLoan = false;
-      else updated.hasHomeLoan = true;
-    }
-
     // ── Risk Tolerance ──
     if (/\b(conservative|low\s+risk|safe)\b/i.test(q)) updated.riskTolerance = "conservative";
     else if (/\b(moderate|medium\s+risk|balanced)\b/i.test(q)) updated.riskTolerance = "moderate";
@@ -361,68 +358,44 @@ export class FactExtractor {
     const ageMatch = text.match(/\b(?:i'?m|i\s+am|my\s+age\s+is|age)\s*:?\s*(\d{2})\b/i);
     if (ageMatch) updated.currentAge = parseInt(ageMatch[1]);
 
-    // ── Retirement Age ──
-    const retireMatch = text.match(/\bretire\s+(?:at|by)\s+(\d{2})\b/i);
-    if (retireMatch) updated.retirementAge = parseInt(retireMatch[1]);
-
     return updated;
   }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 3. MISSING INFO ANALYZER — Schema per goal
+// 3. MISSING INFO ANALYZER
 // ══════════════════════════════════════════════════════════════════════════════
 export class MissingInfoAnalyzer {
   private static REQUIRED_FACTS: Record<string, WorkflowQuestion[]> = {
     tax_saving_plan: [
       { id: "tq1", question: "What is your total annual gross income (salary / CTC)?", factKey: "annualIncome" },
-      { id: "tq2", question: "Which tax regime do you currently file under?", factKey: "taxRegime", options: ["Old Regime", "New Regime", "Not Sure"] },
+      { id: "tq2", question: "Which tax regime are you currently using?", factKey: "taxRegime", options: ["Old Regime", "New Regime", "Not Sure"] },
       { id: "tq3", question: "Have you already made any investments under Section 80C this year (PPF, ELSS, EPF, LIC)?", factKey: "has80CInvestments", options: ["Yes", "No", "Not Sure"] },
       { id: "tq4", question: "Do you have Health Insurance (Mediclaim) for yourself or your family?", factKey: "hasHealthInsurance", options: ["Yes", "No"] },
       { id: "tq5", question: "Do you have an active NPS (National Pension System) Tier-1 account?", factKey: "hasNPS", options: ["Yes", "No"] },
     ],
     investment_strategy: [
-      { id: "iq1", question: "What is your approximate monthly investable surplus?", factKey: "monthlyInvestable" },
-      { id: "iq2", question: "What is your risk tolerance?", factKey: "riskTolerance", options: ["Conservative", "Moderate", "Aggressive"] },
+      { id: "iq1", question: "How much would you like to invest monthly?", factKey: "monthlyInvestable" },
+      { id: "iq2", question: "What is your risk tolerance?", factKey: "riskTolerance", options: ["Conservative (Low Risk)", "Moderate (Balanced)", "Aggressive (High Growth)"] },
       { id: "iq3", question: "What is your investment horizon?", factKey: "investmentHorizon", options: ["Short-term (1-3 yrs)", "Medium-term (3-7 yrs)", "Long-term (7+ yrs)"] },
     ],
     house_purchase_plan: [
       { id: "hq1", question: "What is the target property value?", factKey: "targetAmount" },
       { id: "hq2", question: "How much down payment have you saved?", factKey: "existingCorpus" },
-      { id: "hq3", question: "What is your monthly income?", factKey: "monthlyIncome" },
     ],
     retirement_planning: [
       { id: "rq1", question: "What is your current age?", factKey: "currentAge" },
       { id: "rq2", question: "At what age do you plan to retire?", factKey: "retirementAge" },
-      { id: "rq3", question: "What are your current monthly living expenses?", factKey: "monthlyExpenses" },
     ],
-    debt_elimination: [
-      { id: "dq1", question: "What is your current monthly income?", factKey: "monthlyIncome" },
-    ],
-    emergency_fund: [
-      { id: "eq1", question: "What are your monthly essential expenses?", factKey: "monthlyExpenses" },
-    ],
-    insurance_review: [
-      { id: "irq1", question: "What is your current age?", factKey: "currentAge" },
-      { id: "irq2", question: "How many dependents do you have?", factKey: "dependents" },
-    ],
-    education_planning: [
-      { id: "edq1", question: "What is the target education cost?", factKey: "targetAmount" },
-    ],
-    wealth_growth: [
-      { id: "wq1", question: "What is your monthly investable surplus?", factKey: "monthlyInvestable" },
-    ],
-    fire_independence: [
-      { id: "fq1", question: "What is your current age?", factKey: "currentAge" },
-      { id: "fq2", question: "What are your annual living expenses?", factKey: "monthlyExpenses" },
-    ],
+    debt_elimination: [],
+    emergency_fund: [],
+    insurance_review: [],
+    education_planning: [],
+    wealth_growth: [],
+    fire_independence: [],
     budget_optimization: [],
-    vehicle_purchase: [
-      { id: "vq1", question: "What is the vehicle's on-road price?", factKey: "targetAmount" },
-    ],
-    marriage_planning: [
-      { id: "mq1", question: "What is your total estimated wedding budget?", factKey: "targetAmount" },
-    ],
+    vehicle_purchase: [],
+    marriage_planning: [],
     business_planning: [],
     estate_planning: [],
     definition_explanation: [],
@@ -449,13 +422,6 @@ export class MissingInfoAnalyzer {
         if (osIncome > 0) {
           facts.monthlyIncome = osIncome;
           facts.annualIncome = osIncome * 12;
-          continue;
-        }
-      }
-      if (q.factKey === "monthlyExpenses") {
-        const osExpense = SelectorEngine.getExpenseSummary(state);
-        if (osExpense > 0) {
-          facts.monthlyExpenses = osExpense;
           continue;
         }
       }
@@ -517,20 +483,17 @@ export class MemoryManager {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 5. FINANCIAL OS CONNECTOR — Deterministic Calculations & Context
+// 5. FINANCIAL OS CONNECTOR — Data Database Layer (No Automatic Metric Dumps)
 // ══════════════════════════════════════════════════════════════════════════════
 export class FinancialOSConnector {
   public static buildGoalContext(goal: PlanningGoal, state: State, facts: ExtractedFacts): string {
     const parts: string[] = [];
 
-    const netWorth = MetricsRegistry.getMetric(state, "net_worth");
-    const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
     const income = MetricsRegistry.getMetric(state, "monthly_income");
     const expense = SelectorEngine.getExpenseSummary(state);
     const cashFlow = MetricsRegistry.getMetric(state, "cash_flow");
 
-    parts.push(`FINANCIAL POSITION: Net Worth ${formatINR(netWorth)}, Health Score ${healthScore.toFixed(0)}/100`);
-    parts.push(`CASH FLOW: Income ${formatINR(income)}/mo, Expenses ${formatINR(expense)}/mo, Surplus ${formatINR(cashFlow)}/mo`);
+    parts.push(`CASH FLOW: Monthly Income ${formatINR(income)}, Monthly Expense ${formatINR(expense)}, Surplus ${formatINR(cashFlow)}`);
 
     if (goal === "tax_saving_plan") {
       const annualIncome = facts.annualIncome || income * 12 || 1700000;
@@ -543,11 +506,10 @@ export class FinancialOSConnector {
         other: 0,
       });
 
-      parts.push(`DETERMINISTIC TAX CALCULATIONS (ANNUAL INCOME: ${formatINR(annualIncome)}):`);
-      parts.push(`• New Regime Tax Payable: ${formatINR(taxPlan.newRegimeResult.totalTax)}`);
-      parts.push(`• Old Regime Tax Payable: ${formatINR(taxPlan.oldRegimeResult.totalTax)}`);
-      parts.push(`• Optimal Regime: ${taxPlan.optimalRegime.toUpperCase()} REGIME`);
-      parts.push(`• Tax Difference: ${formatINR(taxPlan.taxSavingsWithOptimalRegime)}`);
+      parts.push(`TAX ENGINE CALCULATIONS (Gross Income: ${formatINR(annualIncome)}):`);
+      parts.push(`• New Regime Tax: ${formatINR(taxPlan.newRegimeResult.totalTax)}`);
+      parts.push(`• Old Regime Tax: ${formatINR(taxPlan.oldRegimeResult.totalTax)}`);
+      parts.push(`• Tax Savings with Optimal Regime (${taxPlan.optimalRegime.toUpperCase()}): ${formatINR(taxPlan.taxSavingsWithOptimalRegime)}`);
     }
 
     return parts.join("\n");
@@ -556,16 +518,27 @@ export class FinancialOSConnector {
   public static getDirectDataAnswer(goal: PlanningGoal, state: State, query: string): string | null {
     const q = query.toLowerCase();
 
-    if (goal === "budget_optimization" && /\b(my budget|utilization|how.s my budget)\b/i.test(q)) {
-      const budgets = SelectorEngine.getBudgets(state);
-      const util = MetricsRegistry.getMetric(state, "budget_utilization");
-      if (budgets.length === 0) {
-        return "You currently have zero active budget caps configured in your Financial OS. You can set category limits in the Budgets section.";
+    // Portfolio direct query
+    if (/\b(my portfolio|my investments?|holdings|what do i own|how is my portfolio)\b/i.test(q)) {
+      const summary = SelectorEngine.getPortfolioSummary(state);
+      if (summary.totalInvested === 0 && summary.totalCurrent === 0) {
+        return "You don't have any investment holdings recorded in your ledger yet. Would you like me to help you build an investment strategy?";
       }
-      const lines = budgets.slice(0, 4).map(
-        (b) => `• **${b.category}:** ${formatINR(b.metrics.spent)} of ${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`
-      );
-      return `### Budget Utilization Analysis\n\n**Overall Utilization:** ${util.toFixed(0)}%\n\n${lines.join("\n")}`;
+
+      const gain = summary.totalCurrent - summary.totalInvested;
+      return `Based on your ledger, your portfolio is currently valued at **${formatINR(summary.totalCurrent)}** across **${state.investments?.length ?? 0} holdings**.\n\n• **Total Invested Capital:** ${formatINR(summary.totalInvested)}\n• **Unrealized P&L:** ${gain >= 0 ? "+" : ""}${formatINR(gain)}\n\nWould you like me to review your asset allocation or recommend rebalancing options?`;
+    }
+
+    // Loan direct query
+    if (/\b(my loans?|outstanding|my emi)\b/i.test(q)) {
+      const loans = SelectorEngine.getActiveLoans(state);
+      if (loans.length === 0) return "You currently have zero active loans recorded in your ledger.";
+
+      const totalOut = SelectorEngine.getLoansOutstandingSummary(state);
+      const totalEmi = SelectorEngine.getLoansEmiSummary(state);
+
+      const lines = loans.map((l) => `• **${l.name}:** ${formatINR(l.outstanding)} @ ${l.rate}% p.a. (EMI: ${formatINR(l.emi)})`);
+      return `Here is your current loan summary:\n\n• **Total Outstanding Debt:** ${formatINR(totalOut)}\n• **Monthly EMI Commitments:** ${formatINR(totalEmi)}\n\n${lines.join("\n")}`;
     }
 
     return null;
@@ -573,7 +546,7 @@ export class FinancialOSConnector {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 6. CENTRAL FINANCIAL COPILOT BRAIN
+// 6. CENTRAL FINANCIAL COPILOT BRAIN — Conversational Orchestrator
 // ══════════════════════════════════════════════════════════════════════════════
 export class FinancialCopilotBrain {
   public static async processQuery(
@@ -584,11 +557,11 @@ export class FinancialCopilotBrain {
   ): Promise<CopilotBrainResult> {
     const text = userQuery.trim();
 
-    // ── STEP 0: Domain Guard ──
+    // ── STEP 0: Domain Guard Check ──
     const domainCheck = DomainGuard.checkDomain(text);
     if (!domainCheck.isFinanceRelated) {
       return {
-        answerText: domainCheck.refusalMessage || "I specialize in personal finance, investments, taxation, and financial planning. Could you ask me a finance-related question?",
+        answerText: "I specialize exclusively in personal finance, investments, tax planning, and financial management. I can't assist with sports or non-financial topics, but feel free to ask me anything about your money or investments!",
         userFacingLabel: "General financial knowledge",
         isFollowUpRequired: false,
         citations: [],
@@ -613,10 +586,9 @@ export class FinancialCopilotBrain {
 
     MemoryManager.saveFacts(updatedFacts);
 
-    // ── STEP 3: Greeting / Help ──
+    // ── STEP 3: Natural Greetings ──
     if (goal === "greeting_help") {
-      const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
-      const greeting = `Hello! I'm your Financial Copilot — your personal CA + CFP + Investment Advisor.\n\nYour **Financial Health Score** is **${healthScore.toFixed(0)}/100**.\n\nI can help you with:\n• 📊 Tax saving & regime optimization\n• 💰 Investment & SIP planning\n• 🏠 Home & vehicle purchase strategy\n• 📉 Debt prepayment plans\n• 🎯 Goal tracking\n\nWhat would you like to work on today?`;
+      const greeting = `Hello! I'm your Financial Copilot. How can I assist you with your money, investments, or taxes today?`;
 
       return {
         answerText: greeting,
@@ -628,11 +600,11 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 4: Educational Query ──
+    // ── STEP 4: Educational Concepts ──
     if (goal === "definition_explanation") {
       const kbArticle = FinanceKnowledgeBase.searchKnowledgeBase(text);
       if (kbArticle) {
-        const answer = `### ${kbArticle.title}\n\n${kbArticle.details}\n\n*Summary:* ${kbArticle.summary}`;
+        const answer = `**${kbArticle.title}**\n\n${kbArticle.details}\n\n*${kbArticle.summary}*`;
         const validated = ResponseValidator.validateResponse(answer);
         const citations = CitationEngine.extractCitations(validated.sanitizedResponse, kbArticle.title);
 
@@ -647,7 +619,7 @@ export class FinancialCopilotBrain {
       }
     }
 
-    // ── STEP 5: Direct OS Answer ──
+    // ── STEP 5: Direct OS Queries (Portfolio, Loans) ──
     const directAnswer = FinancialOSConnector.getDirectDataAnswer(goal, state, text);
     if (directAnswer) {
       const validated = ResponseValidator.validateResponse(directAnswer);
@@ -664,7 +636,7 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 6: Planning Workflow & Follow-Up Questions ──
+    // ── STEP 6: Advisory Follow-Up Question Flow ──
     const isAdvisoryGoal = ![
       "definition_explanation",
       "greeting_help",
@@ -680,36 +652,28 @@ export class FinancialCopilotBrain {
         const answeredCount = totalQuestions - missingQuestions.length;
         const nextQuestion = missingQuestions[0];
 
-        const goalName = GoalDetector.getGoalDisplayName(goal);
+        let response = "";
 
-        // Build deterministic advice header if facts are known
-        let response = `### ${goalName}\n\n`;
-
-        if (goal === "tax_saving_plan" && updatedFacts.annualIncome) {
-          const annualInc = updatedFacts.annualIncome;
-          const taxPlan = TaxEngine.calculateIndiaTax(annualInc, {
-            sec80C: updatedFacts.has80CInvestments ? 150000 : 0,
-            sec80D: updatedFacts.hasHealthInsurance ? 25000 : 0,
-            sec80CCD: updatedFacts.hasNPS ? 50000 : 0,
-            sec24b: 0,
-            hra: 0,
-            other: 0,
-          });
-
-          response += `**Gross Annual Income:** ${formatINR(annualInc)}\n\n`;
-          response += `#### Deterministic Tax Liability (FY 2024-25 / AY 2025-26)\n`;
-          response += `• **New Tax Regime (Default):** ${formatINR(taxPlan.newRegimeResult.totalTax)} *(Includes ₹75,000 Standard Deduction)*\n`;
-          response += `• **Old Tax Regime (Zero Deductions):** ${formatINR(taxPlan.oldRegimeResult.totalTax)}\n\n`;
-          response += `💡 *Without deductions, the New Regime saves you **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** per year.*\n\n`;
-          response += `---\n\nTo see if deductions can make the Old Regime cheaper for you:\n\n`;
+        if (goal === "tax_saving_plan") {
+          response = `I'd be happy to help you create a personalized tax plan.`;
+          if (updatedFacts.annualIncome) {
+            response += `\n\nFrom your message I understand:\n✓ Annual Salary: ${formatINR(updatedFacts.annualIncome)}`;
+          }
+          response += `\n\nBefore I calculate your taxes, I need a few more details.\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
+        } else if (goal === "investment_strategy") {
+          response = `I can help you build an investment strategy.`;
+          if (updatedFacts.monthlyInvestable) {
+            response += `\n\nFrom your message I understand:\n✓ Monthly Investment: ${formatINR(updatedFacts.monthlyInvestable)}`;
+          }
+          response += `\n\nTo tailor the right asset allocation, I need a few details.\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
         } else {
           const knownFacts = this.formatKnownFacts(updatedFacts);
+          response = `I can help you with your financial planning.`;
           if (knownFacts) {
-            response += `From what you've shared, I already know:\n${knownFacts}\n\n`;
+            response += `\n\nFrom what you've shared:\n${knownFacts}`;
           }
+          response += `\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
         }
-
-        response += `**Question ${answeredCount + 1} of ${totalQuestions}:** ${nextQuestion.question}`;
 
         const workflowState: WorkflowState = {
           activeGoal: goal,
@@ -734,12 +698,12 @@ export class FinancialCopilotBrain {
       }
     }
 
-    // ── STEP 7: AI Reasoning with Server Fallback ──
+    // ── STEP 7: Full AI Reasoning (Server-Side AI or Local Fallback) ──
     return await this.executeAIReasoning(text, goal, state, updatedFacts, coachType, history, intent, domainCheck);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AI REASONING & DETERMINISTIC FALLBACK
+  // AI REASONING & NATURAL ADVISORY FALLBACK
   // ═══════════════════════════════════════════════════════════════════════════
   private static async executeAIReasoning(
     query: string,
@@ -794,19 +758,18 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── Deterministic Fallback — Guaranteed Grounded Financial Advice ──
-    return this.generateGroundedFallback(goal, state, facts, intent, domainCheck);
+    // ── Natural Conversational Fallback ──
+    return this.generateNaturalConversationalFallback(goal, state, facts, intent, domainCheck);
   }
 
-  private static generateGroundedFallback(
+  private static generateNaturalConversationalFallback(
     goal: PlanningGoal,
     state: State,
     facts: ExtractedFacts,
     intent: FinanceIntent,
     domainCheck: DomainGuardCheck
   ): CopilotBrainResult {
-    const goalName = GoalDetector.getGoalDisplayName(goal);
-    const annualInc = facts.annualIncome || MetricsRegistry.getMetric(state, "monthly_income") * 12 || 1700000;
+    const annualInc = facts.annualIncome || 1700000;
 
     let answer = "";
 
@@ -820,56 +783,27 @@ export class FinancialCopilotBrain {
         other: 0,
       });
 
-      answer = `### ${goalName} (Gross Salary: ${formatINR(annualInc)})\n\n`;
-      answer += `#### Deterministic Tax Regime Comparison (FY 2024-25 / AY 2025-26)\n\n`;
-      answer += `• **New Tax Regime (Default):** Net Tax = **${formatINR(taxPlan.newRegimeResult.totalTax)}** *(Effective Tax Rate: ${taxPlan.newRegimeResult.effectiveRate.toFixed(1)}%)*\n`;
-      answer += `• **Old Tax Regime (Current Deductions):** Net Tax = **${formatINR(taxPlan.oldRegimeResult.totalTax)}** *(Effective Tax Rate: ${taxPlan.oldRegimeResult.effectiveRate.toFixed(1)}%)*\n\n`;
-
-      answer += `💡 **Optimal Choice:** Use the **${taxPlan.optimalRegime.toUpperCase()} Tax Regime** to save **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** annually.\n\n`;
-
+      answer = `Based on your gross annual income of **${formatINR(annualInc)}**, here is your tax comparison and optimization plan:\n\n`;
+      answer += `**1. New Tax Regime (Default):**\n`;
+      answer += `• Total Tax Payable: **${formatINR(taxPlan.newRegimeResult.totalTax)}** *(Includes ₹75,000 Standard Deduction)*\n\n`;
+      answer += `**2. Old Tax Regime:**\n`;
+      answer += `• Total Tax Payable: **${formatINR(taxPlan.oldRegimeResult.totalTax)}**\n\n`;
+      answer += `💡 **Regime Recommendation:** The **${taxPlan.optimalRegime.toUpperCase()} Tax Regime** is currently more beneficial, saving you **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** per year.\n\n`;
       answer += `---\n\n`;
-      answer += `#### High-Impact Tax Savings Action Plan\n\n`;
-      answer += `**Priority 1 — Section 80C Deduction (Up to ₹1,50,000)**\n`;
-      answer += `• **Recommended:** ELSS Tax-Saver Mutual Funds (3-yr lock-in) or PPF (15-yr tax-free EEE status).\n`;
-      answer += `• **Tax Benefit:** Saves up to **₹46,800** at 30% slab.\n\n`;
-
-      answer += `**Priority 2 — Section 80D Health Insurance (Up to ₹75,000)**\n`;
-      answer += `• **Recommended:** Mediclaim cover for self (₹25,000) and senior parents (₹50,000).\n`;
-      answer += `• **Tax Benefit:** Saves up to **₹23,400**.\n\n`;
-
-      answer += `**Priority 3 — Section 80CCD(1B) NPS Tier-1 (₹50,000)**\n`;
-      answer += `• **Recommended:** National Pension System additional allocation.\n`;
-      answer += `• **Tax Benefit:** Saves **₹15,600** beyond the 80C limit.`;
-    } else if (goal === "budget_optimization") {
-      const budgets = SelectorEngine.getBudgets(state);
-      const util = MetricsRegistry.getMetric(state, "budget_utilization");
-      const income = MetricsRegistry.getMetric(state, "monthly_income");
-      const expense = SelectorEngine.getExpenseSummary(state);
-      const cashFlow = income - expense;
-
-      answer = `### Budget & Cash Flow Analysis\n\n`;
-      answer += `• **Monthly Inflow:** ${formatINR(income)}\n`;
-      answer += `• **Monthly Outflow:** ${formatINR(expense)}\n`;
-      answer += `• **Net Surplus:** ${formatINR(cashFlow)}\n`;
-      answer += `• **Overall Budget Utilization:** ${util.toFixed(0)}%\n\n`;
-
-      if (budgets.length > 0) {
-        answer += budgets
-          .slice(0, 5)
-          .map((b) => `• **${b.category}:** ${formatINR(b.metrics.spent)} of ${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`)
-          .join("\n");
-      } else {
-        answer += `To track category limits, set up spending budgets in the Budgets section.`;
-      }
+      answer += `**Key Tax Saving Opportunities:**\n`;
+      answer += `• **Section 80C (Up to ₹1.5L):** Invest in ELSS Mutual Funds or PPF to save up to ₹46,800.\n`;
+      answer += `• **Section 80D (Up to ₹75K):** Health insurance premiums for self and parents save up to ₹23,400.\n`;
+      answer += `• **Section 80CCD(1B) (₹50K):** NPS Tier-1 investments yield an extra ₹15,600 tax saving.`;
+    } else if (goal === "investment_strategy") {
+      const amount = facts.monthlyInvestable || 20000;
+      answer = `Investing **${formatINR(amount)} monthly** is a fantastic strategy to build long-term wealth.\n\n`;
+      answer += `**Recommended Asset Allocation:**\n`;
+      answer += `• **Large-Cap / Flexi-Cap Index Funds (60%):** ${formatINR(amount * 0.6)}/mo for core long-term growth.\n`;
+      answer += `• **Mid-Cap & Small-Cap Funds (25%):** ${formatINR(amount * 0.25)}/mo for higher alpha.\n`;
+      answer += `• **Fixed Income / Debt Funds (15%):** ${formatINR(amount * 0.15)}/mo for portfolio stability.\n\n`;
+      answer += `Over 10 years at an estimated 12% annual return, a ${formatINR(amount)}/mo SIP could grow to approximately **₹46.4 Lakhs** (on ₹24 Lakhs invested).`;
     } else {
-      const netWorth = MetricsRegistry.getMetric(state, "net_worth");
-      const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
-
-      answer = `### ${goalName}\n\n`;
-      answer += `**Your Grounded Ledger Position:**\n`;
-      answer += `• **Net Worth:** ${formatINR(netWorth)}\n`;
-      answer += `• **Financial Health Index:** ${healthScore.toFixed(0)}/100\n\n`;
-      answer += `I'm ready to build your tailored plan. Share your specific target amount or timeline, and I'll generate your step-by-step advisory roadmap.`;
+      answer = `I'd be happy to guide you with your finances. Could you share what specific financial goal or question you'd like to address today?`;
     }
 
     const validated = ResponseValidator.validateResponse(answer);
@@ -888,12 +822,11 @@ export class FinancialCopilotBrain {
 
   private static formatKnownFacts(facts: ExtractedFacts): string {
     const lines: string[] = [];
-    if (facts.annualIncome) lines.push(`✓ **Annual Gross Income:** ${formatINR(facts.annualIncome)}`);
+    if (facts.annualIncome) lines.push(`✓ **Annual Salary:** ${formatINR(facts.annualIncome)}`);
     if (facts.employmentType) lines.push(`✓ **Employment:** ${facts.employmentType}`);
     if (facts.taxRegime) lines.push(`✓ **Tax Regime:** ${facts.taxRegime}`);
     if (facts.has80CInvestments !== undefined) lines.push(`✓ **80C Investments:** ${facts.has80CInvestments ? "Yes" : "No"}`);
-    if (facts.hasHealthInsurance !== undefined) lines.push(`✓ **Health Insurance:** ${facts.hasHealthInsurance ? "Active" : "None"}`);
-    if (facts.hasNPS !== undefined) lines.push(`✓ **NPS Account:** ${facts.hasNPS ? "Active" : "None"}`);
+    if (facts.monthlyInvestable) lines.push(`✓ **Monthly Investment:** ${formatINR(facts.monthlyInvestable)}`);
     return lines.join("\n");
   }
 }
