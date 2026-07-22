@@ -14,6 +14,7 @@ import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AutomationRouteImport } from './routes/automation'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as BudgetsRouteImport } from './routes/budgets'
 import { Route as GoalsRouteImport } from './routes/goals'
@@ -50,6 +51,11 @@ const AssistantRoute = AssistantRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomationRoute = AutomationRouteImport.update({
+  id: '/automation',
+  path: '/automation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BillsRoute = BillsRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/auth': typeof AuthRoute
+  '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
   '/goals': typeof GoalsRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/auth': typeof AuthRoute
+  '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
   '/goals': typeof GoalsRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/auth': typeof AuthRoute
+  '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
   '/goals': typeof GoalsRoute
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/auth'
+    | '/automation'
     | '/bills'
     | '/budgets'
     | '/goals'
@@ -198,6 +208,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/auth'
+    | '/automation'
     | '/bills'
     | '/budgets'
     | '/goals'
@@ -217,6 +228,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/auth'
+    | '/automation'
     | '/bills'
     | '/budgets'
     | '/goals'
@@ -237,6 +249,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   AssistantRoute: typeof AssistantRoute
   AuthRoute: typeof AuthRoute
+  AutomationRoute: typeof AutomationRoute
   BillsRoute: typeof BillsRoute
   BudgetsRoute: typeof BudgetsRoute
   GoalsRoute: typeof GoalsRoute
@@ -286,6 +299,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/automation': {
+      id: '/automation'
+      path: '/automation'
+      fullPath: '/automation'
+      preLoaderRoute: typeof AutomationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bills': {
@@ -381,6 +401,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   AssistantRoute: AssistantRoute,
   AuthRoute: AuthRoute,
+  AutomationRoute: AutomationRoute,
   BillsRoute: BillsRoute,
   BudgetsRoute: BudgetsRoute,
   GoalsRoute: GoalsRoute,
