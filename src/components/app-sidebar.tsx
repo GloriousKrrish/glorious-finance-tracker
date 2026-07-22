@@ -2,7 +2,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, TrendingUp,
   Landmark, Receipt, Target, Settings, Sparkles, FileText, ShieldCheck, LogOut, MessageSquareText,
-  RefreshCw, Calculator, Zap
+  RefreshCw, Calculator, Zap, Code2
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -25,6 +25,7 @@ const wealth = [
   { title: "Planning & Taxes", url: "/planning", icon: Calculator },
 ];
 const workspace = [
+  { title: "Developer Portal", url: "/developer", icon: Code2 },
   { title: "Automation", url: "/automation", icon: Zap },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Sync & OCR", url: "/sync", icon: RefreshCw },

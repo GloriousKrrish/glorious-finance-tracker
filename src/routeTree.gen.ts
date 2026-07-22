@@ -17,6 +17,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AutomationRouteImport } from './routes/automation'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as BudgetsRouteImport } from './routes/budgets'
+import { Route as DeveloperRouteImport } from './routes/developer'
 import { Route as GoalsRouteImport } from './routes/goals'
 import { Route as InvestmentsRouteImport } from './routes/investments'
 import { Route as LoansRouteImport } from './routes/loans'
@@ -66,6 +67,11 @@ const BillsRoute = BillsRouteImport.update({
 const BudgetsRoute = BudgetsRouteImport.update({
   id: '/budgets',
   path: '/budgets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeveloperRoute = DeveloperRouteImport.update({
+  id: '/developer',
+  path: '/developer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GoalsRoute = GoalsRouteImport.update({
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/developer': typeof DeveloperRoute
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByTo {
   '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/developer': typeof DeveloperRoute
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
@@ -169,6 +177,7 @@ export interface FileRoutesById {
   '/automation': typeof AutomationRoute
   '/bills': typeof BillsRoute
   '/budgets': typeof BudgetsRoute
+  '/developer': typeof DeveloperRoute
   '/goals': typeof GoalsRoute
   '/investments': typeof InvestmentsRoute
   '/loans': typeof LoansRoute
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/automation'
     | '/bills'
     | '/budgets'
+    | '/developer'
     | '/goals'
     | '/investments'
     | '/loans'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/automation'
     | '/bills'
     | '/budgets'
+    | '/developer'
     | '/goals'
     | '/investments'
     | '/loans'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/automation'
     | '/bills'
     | '/budgets'
+    | '/developer'
     | '/goals'
     | '/investments'
     | '/loans'
@@ -252,6 +264,7 @@ export interface RootRouteChildren {
   AutomationRoute: typeof AutomationRoute
   BillsRoute: typeof BillsRoute
   BudgetsRoute: typeof BudgetsRoute
+  DeveloperRoute: typeof DeveloperRoute
   GoalsRoute: typeof GoalsRoute
   InvestmentsRoute: typeof InvestmentsRoute
   LoansRoute: typeof LoansRoute
@@ -320,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/budgets'
       fullPath: '/budgets'
       preLoaderRoute: typeof BudgetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/developer': {
+      id: '/developer'
+      path: '/developer'
+      fullPath: '/developer'
+      preLoaderRoute: typeof DeveloperRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/goals': {
@@ -404,6 +424,7 @@ const rootRouteChildren: RootRouteChildren = {
   AutomationRoute: AutomationRoute,
   BillsRoute: BillsRoute,
   BudgetsRoute: BudgetsRoute,
+  DeveloperRoute: DeveloperRoute,
   GoalsRoute: GoalsRoute,
   InvestmentsRoute: InvestmentsRoute,
   LoansRoute: LoansRoute,
