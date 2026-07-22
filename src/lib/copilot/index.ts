@@ -9,3 +9,4 @@ export * from "./response-validator";
 export * from "./citation-engine";
 export * from "./rag-engine";
 export * from "./gemini-client";
+export * from "./copilot-server";

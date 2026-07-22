@@ -22,7 +22,6 @@ import {
   FinancialCoaches,
   AICostOptimizer,
   RecommendationEngine,
-  GeminiClient,
   type CoachType,
   type CopilotResponse,
   type CostOptimizerMetrics
@@ -117,8 +116,7 @@ function AssistantPage() {
     setBusy(true);
 
     try {
-      const apiKey = GeminiClient.getApiKey();
-      const copilotRes = await RAGEngine.processCopilotQuery(query, state, selectedCoach, apiKey);
+      const copilotRes = await RAGEngine.processCopilotQuery(query, state, selectedCoach);
 
       const assistantMsg: Msg = {
         role: "assistant",
@@ -278,10 +276,12 @@ function AssistantPage() {
                           </span>
                           <span className={`rounded px-1.5 py-0.5 font-mono font-semibold ${
                             m.responseMeta.source === "local_kb" ? "bg-emerald-500/10 text-emerald-500" :
-                            m.responseMeta.source === "local_cache" ? "bg-blue-500/10 text-blue-500" : "bg-purple-500/10 text-purple-500"
+                            m.responseMeta.source === "local_cache" ? "bg-blue-500/10 text-blue-500" :
+                            m.responseMeta.source === "local_fallback" ? "bg-amber-500/10 text-amber-500" : "bg-purple-500/10 text-purple-500"
                           }`}>
                             Source: {m.responseMeta.source === "local_kb" ? "Local KB (0 tokens)" :
-                                     m.responseMeta.source === "local_cache" ? "Cache Hit (0 tokens)" : "Gemini LLM"}
+                                     m.responseMeta.source === "local_cache" ? "Cache Hit (0 tokens)" :
+                                     m.responseMeta.source === "local_fallback" ? "Financial OS (local)" : "Gemini LLM"}
                           </span>
 
                           {m.responseMeta.citations.map((cit, cIdx) => (
