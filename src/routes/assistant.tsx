@@ -141,45 +141,45 @@ function AssistantPage() {
         description="Domain-restricted financial intelligence, persona-based advisory coaches, and AI cost optimizer."
       />
 
-      {/* AI COST OPTIMIZATION METRICS BAR */}
+      {/* COPILOT ADVISORY SUMMARY BAR */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="border-border/50 bg-background/50">
           <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Tokens Saved</CardDescription>
-            <CardTitle className="text-xl font-bold text-emerald-500">{costMetrics.tokensSaved.toLocaleString()} tokens</CardTitle>
+            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Financial Health Score</CardDescription>
+            <CardTitle className="text-xl font-bold text-emerald-500">{MetricsRegistry.getMetric(state, "financial_health_score").toFixed(0)}/100</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-[10px] text-muted-foreground">Zero-token KB & Cache Hits</p>
+            <p className="text-[10px] text-muted-foreground">Deterministic Financial OS Grade</p>
           </CardContent>
         </Card>
 
         <Card className="border-border/50 bg-background/50">
           <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Cache Hit Rate</CardDescription>
-            <CardTitle className="text-xl font-bold text-primary">{costMetrics.cacheHitRatePercent}%</CardTitle>
+            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Tracked Accounts</CardDescription>
+            <CardTitle className="text-xl font-bold text-primary">{state.accounts?.length ?? 0} active</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-[10px] text-muted-foreground">{costMetrics.kbHitsZeroTokens + costMetrics.cacheHitsZeroTokens} zero-cost responses</p>
+            <p className="text-[10px] text-muted-foreground">Real-time ledger connections</p>
           </CardContent>
         </Card>
 
         <Card className="border-border/50 bg-background/50">
           <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Estimated $ Saved</CardDescription>
-            <CardTitle className="text-xl font-bold text-emerald-500">${costMetrics.estimatedDollarSaved}</CardTitle>
+            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Monitored Budgets</CardDescription>
+            <CardTitle className="text-xl font-bold text-emerald-500">{state.budgets?.length ?? 0} categories</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-[10px] text-muted-foreground">API call reduction savings</p>
+            <p className="text-[10px] text-muted-foreground">Automated spending limits</p>
           </CardContent>
         </Card>
 
         <Card className="border-border/50 bg-background/50">
           <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Gemini API Calls</CardDescription>
-            <CardTitle className="text-xl font-bold text-foreground">{costMetrics.geminiApiCalls}</CardTitle>
+            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Active Goals & Loans</CardDescription>
+            <CardTitle className="text-xl font-bold text-foreground">{(state.goals?.length ?? 0) + (state.loans?.length ?? 0)} tracked</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-[10px] text-muted-foreground">{costMetrics.tokensConsumed.toLocaleString()} tokens consumed</p>
+            <p className="text-[10px] text-muted-foreground">Planning & debt optimization</p>
           </CardContent>
         </Card>
       </div>
@@ -229,7 +229,7 @@ function AssistantPage() {
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
-                Finance Domain Restricted
+                Financial OS Grounded
               </span>
             </div>
           </div>
@@ -241,7 +241,7 @@ function AssistantPage() {
                 <div className="py-10 text-center text-xs text-muted-foreground space-y-3">
                   <Bot className="h-8 w-8 mx-auto text-primary/60 animate-pulse" />
                   <p className="font-semibold text-foreground">Welcome to Financial Copilot Studio</p>
-                  <p className="max-w-md mx-auto">Ask any personal finance, tax, loan, or investment question. Unrelated non-finance topics are politely restricted.</p>
+                  <p className="max-w-md mx-auto">Ask any personal finance, tax, loan, or investment question. I provide grounded financial analysis tailored to your ledger.</p>
                   <div className="flex flex-wrap justify-center gap-2 pt-2">
                     {currentCoachObj.sampleQuestions.map((q, idx) => (
                       <button
@@ -269,20 +269,11 @@ function AssistantPage() {
                     }`}>
                       <ReactMarkdown>{m.content}</ReactMarkdown>
 
-                      {/* COPILOT METADATA TAGS */}
+                      {/* CLEAN USER-FACING BADGES (NO PROVIDER LEAKAGE) */}
                       {m.responseMeta && (
                         <div className="mt-3 border-t border-border/40 pt-2 flex flex-wrap items-center gap-2 text-[10px]">
-                          <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono font-semibold text-muted-foreground">
-                            Intent: {m.responseMeta.intent}
-                          </span>
-                          <span className={`rounded px-1.5 py-0.5 font-mono font-semibold ${
-                            m.responseMeta.source === "local_kb" ? "bg-emerald-500/10 text-emerald-500" :
-                            m.responseMeta.source === "local_cache" ? "bg-blue-500/10 text-blue-500" :
-                            m.responseMeta.source === "local_fallback" ? "bg-amber-500/10 text-amber-500" : "bg-purple-500/10 text-purple-500"
-                          }`}>
-                            Source: {m.responseMeta.source === "local_kb" ? "Local KB (0 tokens)" :
-                                     m.responseMeta.source === "local_cache" ? "Cache Hit (0 tokens)" :
-                                     m.responseMeta.source === "local_fallback" ? "Financial OS (local)" : "Gemini LLM"}
+                          <span className="rounded bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-500">
+                            ✓ {m.responseMeta.userFacingLabel || "Personalized financial analysis"}
                           </span>
 
                           {m.responseMeta.citations.map((cit, cIdx) => (
