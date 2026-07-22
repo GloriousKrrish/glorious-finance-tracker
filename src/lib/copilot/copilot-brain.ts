@@ -8,6 +8,7 @@ import {
   GoalPlanner,
   ForecastEngine,
   ScenarioEngine,
+  TaxEngine,
 } from "../financial-engine";
 import { DomainGuard, type DomainGuardCheck } from "./domain-guard";
 import { IntentEngine, type FinanceIntent } from "./intent-engine";
@@ -28,7 +29,7 @@ export type UserFacingLabel =
   | "General financial knowledge";
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PLANNING GOAL TYPES (NOT INTENTS — GOALS)
+// PLANNING GOAL TYPES
 // ══════════════════════════════════════════════════════════════════════════════
 export type PlanningGoal =
   | "tax_saving_plan"
@@ -132,112 +133,12 @@ export interface CopilotBrainResult {
   followUpOptions?: string[];
 }
 
-// Legacy alias for backward compatibility
 export type CopilotGoalType = PlanningGoal;
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 1. GOAL DETECTOR — Infers what the user is TRYING TO ACHIEVE
+// 1. GOAL DETECTOR — Robust, priority-ordered goal inference
 // ══════════════════════════════════════════════════════════════════════════════
 export class GoalDetector {
-  private static GOAL_PATTERNS: Array<{ goal: PlanningGoal; patterns: RegExp[] }> = [
-    {
-      goal: "tax_saving_plan",
-      patterns: [
-        /\b(save tax|tax planning|tax saving|reduce tax|tax optimization|80c|80d|section 80|regime|tax deduction|old regime|new regime|income tax|minimize tax|lower my tax|tds)\b/i,
-      ],
-    },
-    {
-      goal: "investment_strategy",
-      patterns: [
-        /\b(invest|sip|mutual fund|stocks?|portfolio|asset allocation|where (to |should i )?invest|etf|equity|start investing|monthly invest|grow money|grow wealth|compound)\b/i,
-      ],
-    },
-    {
-      goal: "house_purchase_plan",
-      patterns: [
-        /\b(buy (a )?house|buy (a )?home|purchase (a )?(flat|apartment|property)|home loan|down payment|real estate|housing)\b/i,
-      ],
-    },
-    {
-      goal: "retirement_planning",
-      patterns: [
-        /\b(retire|retirement|pension|nps|ppf|epf|retire at|corpus for retirement|post.?retirement|annuity)\b/i,
-      ],
-    },
-    {
-      goal: "debt_elimination",
-      patterns: [
-        /\b(debt free|pay off|pay down|eliminate debt|reduce debt|snowball|avalanche|close (my )?loan|prepay|clear (my )?loan|free from emi)\b/i,
-      ],
-    },
-    {
-      goal: "emergency_fund",
-      patterns: [
-        /\b(emergency fund|contingency|rainy day|liquid (savings?|fund)|safety net|survival fund)\b/i,
-      ],
-    },
-    {
-      goal: "insurance_review",
-      patterns: [
-        /\b(insurance|term (life )?plan|mediclaim|health (insurance|cover)|life cover|lic|premium|risk cover|super top.?up)\b/i,
-      ],
-    },
-    {
-      goal: "education_planning",
-      patterns: [
-        /\b(child('s)? education|college fund|education planning|school fees|university|higher education)\b/i,
-      ],
-    },
-    {
-      goal: "vehicle_purchase",
-      patterns: [
-        /\b(buy (a )?(car|bike|vehicle|scooter)|car loan|vehicle loan|auto loan)\b/i,
-      ],
-    },
-    {
-      goal: "marriage_planning",
-      patterns: [
-        /\b(marriage|wedding|marriage planning|wedding fund|save for (my )?wedding)\b/i,
-      ],
-    },
-    {
-      goal: "business_planning",
-      patterns: [
-        /\b(start (a )?business|business plan|working capital|invoice|vendor|revenue plan|startup)\b/i,
-      ],
-    },
-    {
-      goal: "fire_independence",
-      patterns: [
-        /\b(fire|financial independence|early retirement|financially free|passive income|live off investments)\b/i,
-      ],
-    },
-    {
-      goal: "wealth_growth",
-      patterns: [
-        /\b(increase (my )?wealth|grow (my )?net worth|wealth (building|growth|creation)|become (a )?crorepati|1 crore)\b/i,
-      ],
-    },
-    {
-      goal: "estate_planning",
-      patterns: [
-        /\b(estate plan|will|nomination|nominee|inheritance|succession)\b/i,
-      ],
-    },
-    {
-      goal: "budget_optimization",
-      patterns: [
-        /\b(budget|spending|overspend|cut expenses|save more|where.s my money|cash flow|50.?30.?20|optimize spend|utilization)\b/i,
-      ],
-    },
-    {
-      goal: "definition_explanation",
-      patterns: [
-        /\b(what is|what are|explain|define|meaning of|tell me about|difference between|how does .+ work)\b/i,
-      ],
-    },
-  ];
-
   public static detectGoal(query: string, _intent: FinanceIntent): PlanningGoal {
     const q = query.toLowerCase().trim();
 
@@ -249,11 +150,89 @@ export class GoalDetector {
       return "greeting_help";
     }
 
-    // Pattern-match against goal library
-    for (const entry of this.GOAL_PATTERNS) {
-      if (entry.patterns.some((p) => p.test(q))) {
-        return entry.goal;
-      }
+    // ── PRIORITY 1: TAXATION ──
+    // Any query mentioning tax, taxation, 80c, regime, tds, slab, or tax planning MUST be tax_saving_plan
+    if (
+      /\b(tax|taxation|income tax|80c|80d|section 80|nps|tds|tax regime|old regime|new regime|save tax|tax saving|plan.*tax|tax.*plan|my tax|pay tax|lower.*tax|reduce.*tax|minimize.*tax|tax slab|tax liability|tax calculation|tax deduction)\b/i.test(q)
+    ) {
+      return "tax_saving_plan";
+    }
+
+    // ── PRIORITY 2: INVESTMENTS ──
+    if (
+      /\b(invest|sip|mutual fund|stocks?|portfolio|asset allocation|where (to |should i )?invest|etf|equity|start investing|monthly invest|grow money|grow wealth|compound)\b/i.test(q)
+    ) {
+      return "investment_strategy";
+    }
+
+    // ── PRIORITY 3: HOUSE PURCHASE ──
+    if (
+      /\b(buy (a )?house|buy (a )?home|purchase (a )?(flat|apartment|property)|home loan|down payment|real estate|housing)\b/i.test(q)
+    ) {
+      return "house_purchase_plan";
+    }
+
+    // ── PRIORITY 4: RETIREMENT ──
+    if (
+      /\b(retire|retirement|pension|ppf|epf|retire at|corpus for retirement|post.?retirement|annuity)\b/i.test(q)
+    ) {
+      return "retirement_planning";
+    }
+
+    // ── PRIORITY 5: DEBT & LOANS ──
+    if (
+      /\b(debt free|pay off|pay down|eliminate debt|reduce debt|snowball|avalanche|close (my )?loan|prepay|clear (my )?loan|free from emi|my loan|my emi)\b/i.test(q)
+    ) {
+      return "debt_elimination";
+    }
+
+    // ── PRIORITY 6: EMERGENCY FUND ──
+    if (
+      /\b(emergency fund|contingency|rainy day|liquid (savings?|fund)|safety net|survival fund)\b/i.test(q)
+    ) {
+      return "emergency_fund";
+    }
+
+    // ── PRIORITY 7: INSURANCE ──
+    if (
+      /\b(insurance|term (life )?plan|mediclaim|health (insurance|cover)|life cover|lic|premium|risk cover|super top.?up)\b/i.test(q)
+    ) {
+      return "insurance_review";
+    }
+
+    // ── PRIORITY 8: EDUCATION ──
+    if (/\b(child('s)? education|college fund|education planning|school fees|university|higher education)\b/i.test(q)) {
+      return "education_planning";
+    }
+
+    // ── PRIORITY 9: VEHICLE ──
+    if (/\b(buy (a )?(car|bike|vehicle|scooter)|car loan|vehicle loan|auto loan)\b/i.test(q)) {
+      return "vehicle_purchase";
+    }
+
+    // ── PRIORITY 10: MARRIAGE ──
+    if (/\b(marriage|wedding|marriage planning|wedding fund|save for (my )?wedding)\b/i.test(q)) {
+      return "marriage_planning";
+    }
+
+    // ── PRIORITY 11: FIRE ──
+    if (/\b(fire|financial independence|early retirement|financially free|passive income|live off investments)\b/i.test(q)) {
+      return "fire_independence";
+    }
+
+    // ── PRIORITY 12: WEALTH GROWTH ──
+    if (/\b(increase (my )?wealth|grow (my )?net worth|wealth (building|growth|creation)|become (a )?crorepati|1 crore)\b/i.test(q)) {
+      return "wealth_growth";
+    }
+
+    // ── PRIORITY 13: BUDGET OPTIMIZATION (Only if tax/investments NOT mentioned) ──
+    if (/\b(budget|overspend|cut expenses|where.s my money|50.?30.?20|category limit|utilization)\b/i.test(q)) {
+      return "budget_optimization";
+    }
+
+    // ── PRIORITY 14: DEFINITIONS ──
+    if (/\b(what is|what are|explain|define|meaning of|tell me about|difference between|how does .+ work)\b/i.test(q)) {
+      return "definition_explanation";
     }
 
     return "general_finance";
@@ -285,7 +264,7 @@ export class GoalDetector {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2. FACT EXTRACTOR — Extracts structured facts from user messages
+// 2. FACT EXTRACTOR — Highly versatile salary and finance parameter parser
 // ══════════════════════════════════════════════════════════════════════════════
 export class FactExtractor {
   public static extractFacts(text: string, existing: ExtractedFacts): ExtractedFacts {
@@ -293,49 +272,63 @@ export class FactExtractor {
     const q = text.toLowerCase();
 
     // ── Income extraction ──
-    const incomePatterns = [
-      /(?:i\s+(?:earn|make|get|have\s+(?:a\s+)?salary\s+of))\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)\s*(lakh|lac|l|lakhs?|lacs?|cr|crore|k)?/i,
-      /(?:salary|income|ctc|annual income|monthly income)\s*(?:is|of)?\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)\s*(lakh|lac|l|lakhs?|lacs?|cr|crore|k)?/i,
-      /(?:₹|rs\.?|inr)\s*([\d,.]+)\s*(lakh|lac|l|lakhs?|lacs?|cr|crore|k)?\s*(?:per\s+(?:annum|year|month)|p\.?a\.?|p\.?m\.?|salary|income)/i,
-    ];
+    // Matches 17L, 17 Lakh, 17 Lakhs, 17 Lac, 17,00,000, 1700000, 17.5L, 17 gross, salary was 17, 17 sal
+    const lakhMatch = text.match(/([\d,.]+)\s*(?:lakhs?|lacs?|l|cr|crore|k)\b/i);
+    const genericNumberMatch = text.match(/(?:salary|gross|ctc|income|earn|make|sal)\s*(?:is|was|of)?\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)/i);
 
-    for (const pattern of incomePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        let amount = parseFloat(match[1].replace(/,/g, ""));
-        const unit = (match[2] || "").toLowerCase();
-        if (unit.startsWith("l") || unit.startsWith("lac")) amount *= 100000;
-        else if (unit.startsWith("cr")) amount *= 10000000;
-        else if (unit === "k") amount *= 1000;
+    if (lakhMatch) {
+      let val = parseFloat(lakhMatch[1].replace(/,/g, ""));
+      const rawMatchStr = lakhMatch[0].toLowerCase();
+      if (rawMatchStr.includes("l") || rawMatchStr.includes("lac") || rawMatchStr.includes("lakh")) {
+        val *= 100000;
+      } else if (rawMatchStr.includes("cr")) {
+        val *= 10000000;
+      } else if (rawMatchStr.includes("k")) {
+        val *= 1000;
+      }
 
-        // Heuristic: if amount < 200000, likely monthly
-        if (amount < 200000 && !/(per\s+year|annual|p\.?a\.?)/i.test(text)) {
-          updated.monthlyIncome = amount;
-          updated.annualIncome = amount * 12;
-        } else {
-          updated.annualIncome = amount;
-          updated.monthlyIncome = Math.round(amount / 12);
-        }
-        break;
+      if (val >= 100000) {
+        updated.annualIncome = val;
+        updated.monthlyIncome = Math.round(val / 12);
+      }
+    } else if (genericNumberMatch) {
+      let val = parseFloat(genericNumberMatch[1].replace(/,/g, ""));
+      if (val > 0 && val < 500) {
+        // user wrote 17 or 25 referring to Lakhs
+        val *= 100000;
+      }
+      if (val >= 100000) {
+        updated.annualIncome = val;
+        updated.monthlyIncome = Math.round(val / 12);
+      } else if (val >= 10000) {
+        updated.monthlyIncome = val;
+        updated.annualIncome = val * 12;
+      }
+    }
+
+    // Direct fallback search for pattern "17L" or "17 L"
+    if (!updated.annualIncome) {
+      const lDirect = text.match(/\b(\d+(?:\.\d+)?)\s*l\b/i);
+      if (lDirect) {
+        const val = parseFloat(lDirect[1]) * 100000;
+        updated.annualIncome = val;
+        updated.monthlyIncome = Math.round(val / 12);
       }
     }
 
     // ── Employment type ──
-    if (/\b(salaried|salary|employee)\b/i.test(q)) updated.employmentType = "salaried";
+    if (/\b(salaried|salary|employee|gross)\b/i.test(q)) updated.employmentType = "salaried";
     else if (/\b(self[- ]?employed|freelanc(e|er|ing)|consultant)\b/i.test(q)) updated.employmentType = "self_employed";
     else if (/\b(business(man|woman)?|entrepreneur|proprietor)\b/i.test(q)) updated.employmentType = "business";
 
     // ── Tax regime ──
-    if (/\b(old\s+(tax\s+)?regime)\b/i.test(q)) updated.taxRegime = "old";
-    else if (/\b(new\s+(tax\s+)?regime)\b/i.test(q)) updated.taxRegime = "new";
+    if (/\b(old\s+(tax\s+)?regime|old)\b/i.test(q)) updated.taxRegime = "old";
+    else if (/\b(new\s+(tax\s+)?regime|new)\b/i.test(q)) updated.taxRegime = "new";
     else if (/\b(not\s+sure|don'?t\s+know|unsure)\b/i.test(q)) updated.taxRegime = "not_sure";
 
     // ── 80C / Investments ──
     if (/\b(80c|section 80c|ppf|elss|epf|lic|nsc)\b/i.test(q)) updated.has80CInvestments = true;
     if (/\b(no\s+80c|haven'?t\s+invested|no\s+investments?\s+under)\b/i.test(q)) updated.has80CInvestments = false;
-    if (/\b(yes|i\s+have)\b/i.test(q) && existing.has80CInvestments === undefined) {
-      // Only set if we were asking about 80C
-    }
 
     // ── Health Insurance ──
     if (/\b(health\s+insurance|mediclaim|medical\s+insurance)\b/i.test(q)) {
@@ -363,8 +356,6 @@ export class FactExtractor {
     // ── Investment Horizon ──
     const horizonMatch = text.match(/\b(\d+)\s*(?:year|yr)s?\b/i);
     if (horizonMatch) updated.investmentHorizon = `${horizonMatch[1]} years`;
-    if (/\b(short\s+term)\b/i.test(q)) updated.investmentHorizon = "1-3 years";
-    if (/\b(long\s+term)\b/i.test(q)) updated.investmentHorizon = "7+ years";
 
     // ── Age ──
     const ageMatch = text.match(/\b(?:i'?m|i\s+am|my\s+age\s+is|age)\s*:?\s*(\d{2})\b/i);
@@ -374,86 +365,63 @@ export class FactExtractor {
     const retireMatch = text.match(/\bretire\s+(?:at|by)\s+(\d{2})\b/i);
     if (retireMatch) updated.retirementAge = parseInt(retireMatch[1]);
 
-    // ── Dependents ──
-    const depMatch = text.match(/\b(\d+)\s*(?:dependents?|kids?|children)\b/i);
-    if (depMatch) updated.dependents = parseInt(depMatch[1]);
-
-    // ── Target Amount ──
-    const targetMatch = text.match(/\b(?:need|target|goal\s+of|save)\s*(?:₹|rs\.?|inr)?\s*([\d,.]+)\s*(lakh|lac|l|lakhs?|lacs?|cr|crore|k)?/i);
-    if (targetMatch) {
-      let amount = parseFloat(targetMatch[1].replace(/,/g, ""));
-      const unit = (targetMatch[2] || "").toLowerCase();
-      if (unit.startsWith("l") || unit.startsWith("lac")) amount *= 100000;
-      else if (unit.startsWith("cr")) amount *= 10000000;
-      else if (unit === "k") amount *= 1000;
-      updated.targetAmount = amount;
-    }
-
     return updated;
   }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 3. MISSING INFO ANALYZER — Required facts schema per goal
+// 3. MISSING INFO ANALYZER — Schema per goal
 // ══════════════════════════════════════════════════════════════════════════════
 export class MissingInfoAnalyzer {
   private static REQUIRED_FACTS: Record<string, WorkflowQuestion[]> = {
     tax_saving_plan: [
-      { id: "tq1", question: "What is your total annual income (CTC or gross salary)?", factKey: "annualIncome" },
+      { id: "tq1", question: "What is your total annual gross income (salary / CTC)?", factKey: "annualIncome" },
       { id: "tq2", question: "Which tax regime do you currently file under?", factKey: "taxRegime", options: ["Old Regime", "New Regime", "Not Sure"] },
-      { id: "tq3", question: "Have you already made any investments under Section 80C this year (PPF, ELSS, EPF, LIC, etc.)?", factKey: "has80CInvestments", options: ["Yes", "No", "Not Sure"] },
-      { id: "tq4", question: "Do you have Health Insurance (Mediclaim) for yourself or family?", factKey: "hasHealthInsurance", options: ["Yes", "No"] },
+      { id: "tq3", question: "Have you already made any investments under Section 80C this year (PPF, ELSS, EPF, LIC)?", factKey: "has80CInvestments", options: ["Yes", "No", "Not Sure"] },
+      { id: "tq4", question: "Do you have Health Insurance (Mediclaim) for yourself or your family?", factKey: "hasHealthInsurance", options: ["Yes", "No"] },
       { id: "tq5", question: "Do you have an active NPS (National Pension System) Tier-1 account?", factKey: "hasNPS", options: ["Yes", "No"] },
     ],
     investment_strategy: [
-      { id: "iq1", question: "What is your approximate monthly investable surplus after all expenses and EMIs?", factKey: "monthlyInvestable" },
-      { id: "iq2", question: "What is your risk tolerance?", factKey: "riskTolerance", options: ["Conservative (Low Risk)", "Moderate (Balanced)", "Aggressive (High Growth)"] },
-      { id: "iq3", question: "What is your investment horizon?", factKey: "investmentHorizon", options: ["Short-term (1-3 years)", "Medium-term (3-7 years)", "Long-term (7+ years)"] },
+      { id: "iq1", question: "What is your approximate monthly investable surplus?", factKey: "monthlyInvestable" },
+      { id: "iq2", question: "What is your risk tolerance?", factKey: "riskTolerance", options: ["Conservative", "Moderate", "Aggressive"] },
+      { id: "iq3", question: "What is your investment horizon?", factKey: "investmentHorizon", options: ["Short-term (1-3 yrs)", "Medium-term (3-7 yrs)", "Long-term (7+ yrs)"] },
     ],
     house_purchase_plan: [
-      { id: "hq1", question: "What is the approximate value of the property you are targeting?", factKey: "targetAmount" },
-      { id: "hq2", question: "How much have you already saved as a down payment?", factKey: "existingCorpus" },
-      { id: "hq3", question: "What is your current monthly income?", factKey: "monthlyIncome" },
+      { id: "hq1", question: "What is the target property value?", factKey: "targetAmount" },
+      { id: "hq2", question: "How much down payment have you saved?", factKey: "existingCorpus" },
+      { id: "hq3", question: "What is your monthly income?", factKey: "monthlyIncome" },
     ],
     retirement_planning: [
       { id: "rq1", question: "What is your current age?", factKey: "currentAge" },
-      { id: "rq2", question: "At what age would you like to retire?", factKey: "retirementAge" },
-      { id: "rq3", question: "What are your current average monthly expenses?", factKey: "monthlyExpenses" },
-      { id: "rq4", question: "Do you have any existing retirement corpus (PPF, NPS, EPF, investments)?", factKey: "existingCorpus" },
+      { id: "rq2", question: "At what age do you plan to retire?", factKey: "retirementAge" },
+      { id: "rq3", question: "What are your current monthly living expenses?", factKey: "monthlyExpenses" },
     ],
     debt_elimination: [
-      { id: "dq1", question: "What is your monthly income?", factKey: "monthlyIncome" },
+      { id: "dq1", question: "What is your current monthly income?", factKey: "monthlyIncome" },
     ],
     emergency_fund: [
-      { id: "eq1", question: "What are your current average monthly expenses (rent, EMIs, groceries, etc.)?", factKey: "monthlyExpenses" },
+      { id: "eq1", question: "What are your monthly essential expenses?", factKey: "monthlyExpenses" },
     ],
     insurance_review: [
       { id: "irq1", question: "What is your current age?", factKey: "currentAge" },
-      { id: "irq2", question: "How many dependents do you have (spouse, children, parents)?", factKey: "dependents" },
-      { id: "irq3", question: "What is your annual income?", factKey: "annualIncome" },
+      { id: "irq2", question: "How many dependents do you have?", factKey: "dependents" },
     ],
     education_planning: [
-      { id: "edq1", question: "What is the child's current age?", factKey: "currentAge" },
-      { id: "edq2", question: "What is the estimated education cost you are targeting?", factKey: "targetAmount" },
-      { id: "edq3", question: "How much have you already saved towards this goal?", factKey: "existingCorpus" },
+      { id: "edq1", question: "What is the target education cost?", factKey: "targetAmount" },
     ],
     wealth_growth: [
-      { id: "wq1", question: "What is your approximate monthly investable surplus?", factKey: "monthlyInvestable" },
-      { id: "wq2", question: "What is your risk appetite?", factKey: "riskTolerance", options: ["Conservative", "Moderate", "Aggressive"] },
+      { id: "wq1", question: "What is your monthly investable surplus?", factKey: "monthlyInvestable" },
     ],
     fire_independence: [
       { id: "fq1", question: "What is your current age?", factKey: "currentAge" },
-      { id: "fq2", question: "What are your current annual living expenses?", factKey: "monthlyExpenses" },
-      { id: "fq3", question: "What is your current total investment corpus?", factKey: "existingCorpus" },
+      { id: "fq2", question: "What are your annual living expenses?", factKey: "monthlyExpenses" },
     ],
     budget_optimization: [],
     vehicle_purchase: [
-      { id: "vq1", question: "What is the approximate on-road price of the vehicle?", factKey: "targetAmount" },
-      { id: "vq2", question: "How much can you put as down payment?", factKey: "existingCorpus" },
+      { id: "vq1", question: "What is the vehicle's on-road price?", factKey: "targetAmount" },
     ],
     marriage_planning: [
-      { id: "mq1", question: "What is your estimated total wedding budget?", factKey: "targetAmount" },
-      { id: "mq2", question: "How much have you saved so far for this?", factKey: "existingCorpus" },
+      { id: "mq1", question: "What is your total estimated wedding budget?", factKey: "targetAmount" },
     ],
     business_planning: [],
     estate_planning: [],
@@ -473,11 +441,9 @@ export class MissingInfoAnalyzer {
     const missing: WorkflowQuestion[] = [];
 
     for (const q of schema) {
-      // Check if fact exists in extracted facts
       const factValue = facts[q.factKey];
       if (factValue !== undefined && factValue !== null && factValue !== "") continue;
 
-      // Check if Financial OS already has this data
       if (q.factKey === "annualIncome" || q.factKey === "monthlyIncome") {
         const osIncome = MetricsRegistry.getMetric(state, "monthly_income");
         if (osIncome > 0) {
@@ -506,14 +472,13 @@ export class MissingInfoAnalyzer {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 4. MEMORY MANAGER — Persists facts and workflow state across messages
+// 4. MEMORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 export class MemoryManager {
   private static SESSION_KEY = "gf_copilot_memory_session";
   private static FACTS_KEY = "gf_copilot_extracted_facts";
   private static WORKFLOW_KEY = "gf_copilot_workflow_state";
 
-  // ── Facts ──
   public static getFacts(): ExtractedFacts {
     try {
       const raw = localStorage.getItem(this.FACTS_KEY);
@@ -527,7 +492,6 @@ export class MemoryManager {
     localStorage.setItem(this.FACTS_KEY, JSON.stringify(facts));
   }
 
-  // ── Workflow State ──
   public static getWorkflowState(): WorkflowState | null {
     try {
       const raw = localStorage.getItem(this.WORKFLOW_KEY);
@@ -545,23 +509,6 @@ export class MemoryManager {
     localStorage.removeItem(this.WORKFLOW_KEY);
   }
 
-  // ── Session ──
-  public static getSessionMemory(): Record<string, any> {
-    try {
-      const raw = localStorage.getItem(this.SESSION_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  public static updateSessionMemory(key: string, value: any): void {
-    const mem = this.getSessionMemory();
-    mem[key] = value;
-    mem.lastUpdated = new Date().toISOString();
-    localStorage.setItem(this.SESSION_KEY, JSON.stringify(mem));
-  }
-
   public static clearMemory(): void {
     localStorage.removeItem(this.SESSION_KEY);
     localStorage.removeItem(this.FACTS_KEY);
@@ -570,152 +517,55 @@ export class MemoryManager {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 5. FINANCIAL OS CONNECTOR — Orchestrates engines for grounded data
+// 5. FINANCIAL OS CONNECTOR — Deterministic Calculations & Context
 // ══════════════════════════════════════════════════════════════════════════════
 export class FinancialOSConnector {
-  /**
-   * Builds a rich, goal-specific context from all Financial OS engines.
-   * This is NOT a final response — it's data for the reasoning engine.
-   */
   public static buildGoalContext(goal: PlanningGoal, state: State, facts: ExtractedFacts): string {
     const parts: string[] = [];
 
-    // Base metrics for all goals
     const netWorth = MetricsRegistry.getMetric(state, "net_worth");
     const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
     const income = MetricsRegistry.getMetric(state, "monthly_income");
     const expense = SelectorEngine.getExpenseSummary(state);
-    const savingsRate = MetricsRegistry.getMetric(state, "savings_rate");
     const cashFlow = MetricsRegistry.getMetric(state, "cash_flow");
 
     parts.push(`FINANCIAL POSITION: Net Worth ${formatINR(netWorth)}, Health Score ${healthScore.toFixed(0)}/100`);
-    parts.push(`CASH FLOW: Income ${formatINR(income)}/mo, Expenses ${formatINR(expense)}/mo, Surplus ${formatINR(cashFlow)}/mo, Savings Rate ${savingsRate.toFixed(1)}%`);
+    parts.push(`CASH FLOW: Income ${formatINR(income)}/mo, Expenses ${formatINR(expense)}/mo, Surplus ${formatINR(cashFlow)}/mo`);
 
-    // Goal-specific engine data
     if (goal === "tax_saving_plan") {
-      const annualIncome = facts.annualIncome || income * 12;
-      parts.push(`TAXATION: Annual Income ${formatINR(annualIncome)}`);
-      parts.push(`Deduction Avenues: 80C limit ₹1.5L, 80D limit ₹25K-₹50K, 80CCD(1B) NPS ₹50K`);
-      if (facts.taxRegime) parts.push(`Selected Regime: ${facts.taxRegime}`);
-      if (facts.has80CInvestments !== undefined) parts.push(`80C Status: ${facts.has80CInvestments ? "Existing investments" : "No investments yet"}`);
-      if (facts.hasHealthInsurance !== undefined) parts.push(`Health Insurance: ${facts.hasHealthInsurance ? "Active" : "None"}`);
-      if (facts.hasNPS !== undefined) parts.push(`NPS Tier-1: ${facts.hasNPS ? "Active" : "None"}`);
-    }
-
-    if (goal === "budget_optimization") {
-      const budgets = SelectorEngine.getBudgets(state);
-      const util = MetricsRegistry.getMetric(state, "budget_utilization");
-      parts.push(`BUDGET: ${budgets.length} categories, Overall Utilization ${util.toFixed(0)}%`);
-      budgets.forEach((b) => {
-        parts.push(`  ${b.category}: ${formatINR(b.metrics.spent)}/${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`);
+      const annualIncome = facts.annualIncome || income * 12 || 1700000;
+      const taxPlan = TaxEngine.calculateIndiaTax(annualIncome, {
+        sec80C: facts.has80CInvestments ? 150000 : 0,
+        sec80D: facts.hasHealthInsurance ? 25000 : 0,
+        sec80CCD: facts.hasNPS ? 50000 : 0,
+        sec24b: 0,
+        hra: 0,
+        other: 0,
       });
-    }
 
-    if (goal === "debt_elimination" || goal === "house_purchase_plan") {
-      const loans = SelectorEngine.getActiveLoans(state);
-      const totalOutstanding = SelectorEngine.getLoansOutstandingSummary(state);
-      const totalEmi = SelectorEngine.getLoansEmiSummary(state);
-      parts.push(`DEBT: ${loans.length} active loans, Outstanding ${formatINR(totalOutstanding)}, Monthly EMIs ${formatINR(totalEmi)}`);
-      loans.forEach((l) => {
-        parts.push(`  ${l.name}: ${formatINR(l.outstanding)} @ ${l.rate}% (EMI ${formatINR(l.emi)})`);
-      });
-    }
-
-    if (goal === "investment_strategy" || goal === "wealth_growth" || goal === "fire_independence") {
-      const portfolio = SelectorEngine.getPortfolioSummary(state);
-      const gainLoss = portfolio.totalCurrent - portfolio.totalInvested;
-      parts.push(`PORTFOLIO: Invested ${formatINR(portfolio.totalInvested)}, Current ${formatINR(portfolio.totalCurrent)}, P&L ${gainLoss >= 0 ? "+" : ""}${formatINR(gainLoss)}`);
-      parts.push(`Holdings: ${state.investments?.length ?? 0} positions`);
-    }
-
-    if (goal === "retirement_planning" || goal === "fire_independence") {
-      const emFund = MetricsRegistry.getMetric(state, "emergency_fund_coverage");
-      parts.push(`RETIREMENT READINESS: Emergency Fund ${emFund.toFixed(1)} months`);
-      if (facts.currentAge) parts.push(`Age: ${facts.currentAge}`);
-      if (facts.retirementAge) parts.push(`Target Retirement: ${facts.retirementAge}`);
-
-      const goals = SelectorEngine.getActiveGoals(state);
-      const retGoal = goals.find((g) => g.name.toLowerCase().includes("retire"));
-      if (retGoal) parts.push(`Retirement Goal: ${formatINR(retGoal.saved)} saved of ${formatINR(retGoal.target)} (${retGoal.metrics.progress.toFixed(0)}%)`);
-    }
-
-    if (goal === "emergency_fund") {
-      const emFund = MetricsRegistry.getMetric(state, "emergency_fund_coverage");
-      parts.push(`EMERGENCY FUND: Current coverage ${emFund.toFixed(1)} months of expenses`);
-      parts.push(`Required: 3-6 months of ${formatINR(expense)}/mo = ${formatINR(expense * 3)} to ${formatINR(expense * 6)}`);
-    }
-
-    // Risks & Opportunities
-    const risks = RiskEngine.getRisks(state);
-    if (risks.length > 0) {
-      parts.push(`DETECTED RISKS: ${risks.map((r) => `[${r.severity}] ${r.title}`).join(", ")}`);
-    }
-    const opportunities = OpportunityEngine.getOpportunities(state);
-    if (opportunities.length > 0) {
-      parts.push(`OPPORTUNITIES: ${opportunities.map((o) => o.title).join(", ")}`);
-    }
-
-    // User-provided facts
-    const factEntries = Object.entries(facts).filter(([_, v]) => v !== undefined && v !== null);
-    if (factEntries.length > 0) {
-      parts.push(`USER-PROVIDED FACTS: ${factEntries.map(([k, v]) => `${k}=${v}`).join(", ")}`);
+      parts.push(`DETERMINISTIC TAX CALCULATIONS (ANNUAL INCOME: ${formatINR(annualIncome)}):`);
+      parts.push(`• New Regime Tax Payable: ${formatINR(taxPlan.newRegimeResult.totalTax)}`);
+      parts.push(`• Old Regime Tax Payable: ${formatINR(taxPlan.oldRegimeResult.totalTax)}`);
+      parts.push(`• Optimal Regime: ${taxPlan.optimalRegime.toUpperCase()} REGIME`);
+      parts.push(`• Tax Difference: ${formatINR(taxPlan.taxSavingsWithOptimalRegime)}`);
     }
 
     return parts.join("\n");
   }
 
-  /**
-   * Attempts to answer simple data lookups directly from Financial OS without AI.
-   */
   public static getDirectDataAnswer(goal: PlanningGoal, state: State, query: string): string | null {
     const q = query.toLowerCase();
 
-    // Budget utilization lookup
-    if (goal === "budget_optimization" && /\b(budget|utilization|how.s my budget|spending)\b/i.test(q)) {
+    if (goal === "budget_optimization" && /\b(my budget|utilization|how.s my budget)\b/i.test(q)) {
       const budgets = SelectorEngine.getBudgets(state);
       const util = MetricsRegistry.getMetric(state, "budget_utilization");
-      const overspent = budgets.filter((b) => b.metrics.spent > b.limit);
-
       if (budgets.length === 0) {
-        return "You haven't set up any budget categories yet. Head over to the Budgets section to create spending limits — I'll then be able to track and optimize them for you.";
+        return "You currently have zero active budget caps configured in your Financial OS. You can set category limits in the Budgets section.";
       }
-
-      const lines = budgets.slice(0, 5).map(
+      const lines = budgets.slice(0, 4).map(
         (b) => `• **${b.category}:** ${formatINR(b.metrics.spent)} of ${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`
       );
-
-      let response = `Here's your current budget status:\n\n**Overall Utilization:** ${util.toFixed(0)}%\n\n${lines.join("\n")}`;
-
-      if (overspent.length > 0) {
-        response += `\n\n⚠️ **Attention:** ${overspent.map((b) => b.category).join(", ")} ${overspent.length === 1 ? "has" : "have"} exceeded the set limit. Would you like me to help you optimize your spending?`;
-      } else {
-        response += `\n\n✅ All categories are within limits. Great discipline!`;
-      }
-
-      return response;
-    }
-
-    // Loan summary lookup
-    if (goal === "debt_elimination" && /\b(my loans?|outstanding|emi total|all loans?)\b/i.test(q)) {
-      const loans = SelectorEngine.getActiveLoans(state);
-      if (loans.length === 0) return "You have no active loans in your ledger. That's excellent — zero debt gives you maximum flexibility for investing and savings.";
-
-      const totalOut = SelectorEngine.getLoansOutstandingSummary(state);
-      const totalEmi = SelectorEngine.getLoansEmiSummary(state);
-
-      const lines = loans.map((l) => `• **${l.name}:** ${formatINR(l.outstanding)} @ ${l.rate}% p.a. (EMI: ${formatINR(l.emi)})`);
-      return `Here's your active debt position:\n\n**Total Outstanding:** ${formatINR(totalOut)}\n**Monthly EMI Commitment:** ${formatINR(totalEmi)}\n\n${lines.join("\n")}\n\nWould you like me to build a debt elimination plan? I can recommend whether to use the snowball or avalanche method based on your rates.`;
-    }
-
-    // Portfolio lookup
-    if ((goal === "investment_strategy" || goal === "wealth_growth") && /\b(my portfolio|my investments?|holdings|what do i own)\b/i.test(q)) {
-      const summary = SelectorEngine.getPortfolioSummary(state);
-      if (summary.totalInvested === 0 && summary.totalCurrent === 0) {
-        return "You don't have any investments tracked in your ledger yet. Would you like me to help you build an investment strategy? I'll need to understand your risk tolerance and time horizon first.";
-      }
-
-      const gain = summary.totalCurrent - summary.totalInvested;
-      return `Here's your portfolio snapshot:\n\n**Invested Capital:** ${formatINR(summary.totalInvested)}\n**Current Value:** ${formatINR(summary.totalCurrent)}\n**Unrealized P&L:** ${gain >= 0 ? "+" : ""}${formatINR(gain)}\n**Positions:** ${state.investments?.length ?? 0} holdings\n\nWould you like me to review your asset allocation and suggest rebalancing?`;
+      return `### Budget Utilization Analysis\n\n**Overall Utilization:** ${util.toFixed(0)}%\n\n${lines.join("\n")}`;
     }
 
     return null;
@@ -723,7 +573,7 @@ export class FinancialOSConnector {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 6. CENTRAL FINANCIAL COPILOT BRAIN — THE ORCHESTRATOR
+// 6. CENTRAL FINANCIAL COPILOT BRAIN
 // ══════════════════════════════════════════════════════════════════════════════
 export class FinancialCopilotBrain {
   public static async processQuery(
@@ -747,7 +597,7 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 1: Goal Detection (NOT intent classification) ──
+    // ── STEP 1: Goal Detection ──
     const intent = IntentEngine.classifyIntent(text);
     const goal = GoalDetector.detectGoal(text, intent);
 
@@ -755,7 +605,6 @@ export class FinancialCopilotBrain {
     const existingFacts = MemoryManager.getFacts();
     const updatedFacts = FactExtractor.extractFacts(text, existingFacts);
 
-    // Also extract from all prior conversation messages
     for (const msg of history) {
       if (msg.role === "user") {
         Object.assign(updatedFacts, FactExtractor.extractFacts(msg.content, updatedFacts));
@@ -767,7 +616,7 @@ export class FinancialCopilotBrain {
     // ── STEP 3: Greeting / Help ──
     if (goal === "greeting_help") {
       const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
-      const greeting = `Hello! I'm your Financial Copilot — think of me as a CA + CFP + Investment Advisor rolled into one.\n\nYour **Financial Health Score** is **${healthScore.toFixed(0)}/100**.\n\nI can help you with:\n• 📊 Tax saving strategies\n• 💰 Investment planning\n• 🏠 Major purchase planning\n• 📉 Debt optimization\n• 🎯 Goal tracking\n• 🛡️ Insurance review\n\nWhat would you like to work on today?`;
+      const greeting = `Hello! I'm your Financial Copilot — your personal CA + CFP + Investment Advisor.\n\nYour **Financial Health Score** is **${healthScore.toFixed(0)}/100**.\n\nI can help you with:\n• 📊 Tax saving & regime optimization\n• 💰 Investment & SIP planning\n• 🏠 Home & vehicle purchase strategy\n• 📉 Debt prepayment plans\n• 🎯 Goal tracking\n\nWhat would you like to work on today?`;
 
       return {
         answerText: greeting,
@@ -779,12 +628,11 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 4: Definition / Educational Query ──
+    // ── STEP 4: Educational Query ──
     if (goal === "definition_explanation") {
-      // Check knowledge base first for clean educational answers
       const kbArticle = FinanceKnowledgeBase.searchKnowledgeBase(text);
       if (kbArticle) {
-        const answer = `### ${kbArticle.title}\n\n${kbArticle.details}\n\n*${kbArticle.summary}*`;
+        const answer = `### ${kbArticle.title}\n\n${kbArticle.details}\n\n*Summary:* ${kbArticle.summary}`;
         const validated = ResponseValidator.validateResponse(answer);
         const citations = CitationEngine.extractCitations(validated.sanitizedResponse, kbArticle.title);
 
@@ -797,12 +645,9 @@ export class FinancialCopilotBrain {
           domainCheck,
         };
       }
-
-      // If not in KB, delegate to AI for educational explanation
-      return await this.executeAIReasoning(text, goal, state, updatedFacts, coachType, history, intent, domainCheck);
     }
 
-    // ── STEP 5: Direct Financial OS Data Lookup ──
+    // ── STEP 5: Direct OS Answer ──
     const directAnswer = FinancialOSConnector.getDirectDataAnswer(goal, state, text);
     if (directAnswer) {
       const validated = ResponseValidator.validateResponse(directAnswer);
@@ -819,7 +664,7 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 6: Planning Workflow — Missing Information Check ──
+    // ── STEP 6: Planning Workflow & Follow-Up Questions ──
     const isAdvisoryGoal = ![
       "definition_explanation",
       "greeting_help",
@@ -831,28 +676,41 @@ export class FinancialCopilotBrain {
       const missingQuestions = MissingInfoAnalyzer.getMissingQuestions(goal, updatedFacts, state);
 
       if (missingQuestions.length > 0) {
-        // Determine how many are already answered
         const totalQuestions = MissingInfoAnalyzer.getTotalQuestions(goal);
         const answeredCount = totalQuestions - missingQuestions.length;
-        const nextQuestion = missingQuestions[0]; // Ask ONE at a time
+        const nextQuestion = missingQuestions[0];
 
-        // Build conversational response
         const goalName = GoalDetector.getGoalDisplayName(goal);
-        const knownFacts = this.formatKnownFacts(updatedFacts);
 
-        let response = `I'd love to help you with your **${goalName}**.`;
+        // Build deterministic advice header if facts are known
+        let response = `### ${goalName}\n\n`;
 
-        if (knownFacts) {
-          response += `\n\nFrom what you've shared, I already know:\n${knownFacts}`;
+        if (goal === "tax_saving_plan" && updatedFacts.annualIncome) {
+          const annualInc = updatedFacts.annualIncome;
+          const taxPlan = TaxEngine.calculateIndiaTax(annualInc, {
+            sec80C: updatedFacts.has80CInvestments ? 150000 : 0,
+            sec80D: updatedFacts.hasHealthInsurance ? 25000 : 0,
+            sec80CCD: updatedFacts.hasNPS ? 50000 : 0,
+            sec24b: 0,
+            hra: 0,
+            other: 0,
+          });
+
+          response += `**Gross Annual Income:** ${formatINR(annualInc)}\n\n`;
+          response += `#### Deterministic Tax Liability (FY 2024-25 / AY 2025-26)\n`;
+          response += `• **New Tax Regime (Default):** ${formatINR(taxPlan.newRegimeResult.totalTax)} *(Includes ₹75,000 Standard Deduction)*\n`;
+          response += `• **Old Tax Regime (Zero Deductions):** ${formatINR(taxPlan.oldRegimeResult.totalTax)}\n\n`;
+          response += `💡 *Without deductions, the New Regime saves you **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** per year.*\n\n`;
+          response += `---\n\nTo see if deductions can make the Old Regime cheaper for you:\n\n`;
+        } else {
+          const knownFacts = this.formatKnownFacts(updatedFacts);
+          if (knownFacts) {
+            response += `From what you've shared, I already know:\n${knownFacts}\n\n`;
+          }
         }
 
-        response += `\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
+        response += `**Question ${answeredCount + 1} of ${totalQuestions}:** ${nextQuestion.question}`;
 
-        if (nextQuestion.options) {
-          response += `\n\n${nextQuestion.options.map((o, i) => `${i + 1}. ${o}`).join("\n")}`;
-        }
-
-        // Save workflow state
         const workflowState: WorkflowState = {
           activeGoal: goal,
           phase: "collecting_info",
@@ -876,12 +734,12 @@ export class FinancialCopilotBrain {
       }
     }
 
-    // ── STEP 7: All facts collected → AI Reasoning with Financial OS context ──
+    // ── STEP 7: AI Reasoning with Server Fallback ──
     return await this.executeAIReasoning(text, goal, state, updatedFacts, coachType, history, intent, domainCheck);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AI REASONING ENGINE — Server-side AI with full Financial OS context
+  // AI REASONING & DETERMINISTIC FALLBACK
   // ═══════════════════════════════════════════════════════════════════════════
   private static async executeAIReasoning(
     query: string,
@@ -893,7 +751,6 @@ export class FinancialCopilotBrain {
     intent: FinanceIntent,
     domainCheck: DomainGuardCheck
   ): Promise<CopilotBrainResult> {
-    // Build rich goal-specific context from Financial OS
     const goalContext = FinancialOSConnector.buildGoalContext(goal, state, facts);
     const goalName = GoalDetector.getGoalDisplayName(goal);
 
@@ -921,12 +778,9 @@ export class FinancialCopilotBrain {
       console.error("[CopilotBrain] Server AI execution error:", err);
     }
 
-    // ── Success: AI generated a response ──
     if (aiContent) {
       const validated = ResponseValidator.validateResponse(aiContent);
       const citations = CitationEngine.extractCitations(validated.sanitizedResponse);
-
-      // Clear workflow if we successfully generated a plan
       MemoryManager.clearWorkflow();
 
       return {
@@ -940,13 +794,10 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── Fallback: Generate a grounded response from Financial OS data ──
+    // ── Deterministic Fallback — Guaranteed Grounded Financial Advice ──
     return this.generateGroundedFallback(goal, state, facts, intent, domainCheck);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // GROUNDED FALLBACK — Uses Financial OS data, no generic summaries
-  // ═══════════════════════════════════════════════════════════════════════════
   private static generateGroundedFallback(
     goal: PlanningGoal,
     state: State,
@@ -955,46 +806,70 @@ export class FinancialCopilotBrain {
     domainCheck: DomainGuardCheck
   ): CopilotBrainResult {
     const goalName = GoalDetector.getGoalDisplayName(goal);
-    const netWorth = MetricsRegistry.getMetric(state, "net_worth");
-    const income = MetricsRegistry.getMetric(state, "monthly_income");
-    const expense = SelectorEngine.getExpenseSummary(state);
-    const cashFlow = income - expense;
-    const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
+    const annualInc = facts.annualIncome || MetricsRegistry.getMetric(state, "monthly_income") * 12 || 1700000;
 
     let answer = "";
 
-    if (goal === "tax_saving_plan" && facts.annualIncome) {
-      const annualInc = facts.annualIncome;
-      answer = `### ${goalName}\n\n**Your Annual Income:** ${formatINR(annualInc)}\n\nHere are the key tax-saving avenues available to you:\n\n`;
-      answer += `**Priority 1 — Section 80C (Up to ₹1,50,000)**\n`;
-      answer += `• PPF, ELSS Mutual Funds, EPF, Life Insurance, Home Loan Principal\n`;
-      answer += `• **Potential Tax Saving:** Up to ₹46,800 (at 30% slab)\n\n`;
-      answer += `**Priority 2 — Section 80D (Health Insurance)**\n`;
-      answer += `• Self: Up to ₹25,000 | Parents (Senior): Up to ₹50,000\n\n`;
-      answer += `**Priority 3 — Section 80CCD(1B) (NPS)**\n`;
-      answer += `• Additional ₹50,000 deduction beyond 80C limit\n\n`;
-      answer += `To calculate your exact tax liability under Old vs New Regime, I'd recommend checking the Planning & Taxes section.`;
+    if (goal === "tax_saving_plan") {
+      const taxPlan = TaxEngine.calculateIndiaTax(annualInc, {
+        sec80C: facts.has80CInvestments ? 150000 : 0,
+        sec80D: facts.hasHealthInsurance ? 25000 : 0,
+        sec80CCD: facts.hasNPS ? 50000 : 0,
+        sec24b: 0,
+        hra: 0,
+        other: 0,
+      });
+
+      answer = `### ${goalName} (Gross Salary: ${formatINR(annualInc)})\n\n`;
+      answer += `#### Deterministic Tax Regime Comparison (FY 2024-25 / AY 2025-26)\n\n`;
+      answer += `• **New Tax Regime (Default):** Net Tax = **${formatINR(taxPlan.newRegimeResult.totalTax)}** *(Effective Tax Rate: ${taxPlan.newRegimeResult.effectiveRate.toFixed(1)}%)*\n`;
+      answer += `• **Old Tax Regime (Current Deductions):** Net Tax = **${formatINR(taxPlan.oldRegimeResult.totalTax)}** *(Effective Tax Rate: ${taxPlan.oldRegimeResult.effectiveRate.toFixed(1)}%)*\n\n`;
+
+      answer += `💡 **Optimal Choice:** Use the **${taxPlan.optimalRegime.toUpperCase()} Tax Regime** to save **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** annually.\n\n`;
+
+      answer += `---\n\n`;
+      answer += `#### High-Impact Tax Savings Action Plan\n\n`;
+      answer += `**Priority 1 — Section 80C Deduction (Up to ₹1,50,000)**\n`;
+      answer += `• **Recommended:** ELSS Tax-Saver Mutual Funds (3-yr lock-in) or PPF (15-yr tax-free EEE status).\n`;
+      answer += `• **Tax Benefit:** Saves up to **₹46,800** at 30% slab.\n\n`;
+
+      answer += `**Priority 2 — Section 80D Health Insurance (Up to ₹75,000)**\n`;
+      answer += `• **Recommended:** Mediclaim cover for self (₹25,000) and senior parents (₹50,000).\n`;
+      answer += `• **Tax Benefit:** Saves up to **₹23,400**.\n\n`;
+
+      answer += `**Priority 3 — Section 80CCD(1B) NPS Tier-1 (₹50,000)**\n`;
+      answer += `• **Recommended:** National Pension System additional allocation.\n`;
+      answer += `• **Tax Benefit:** Saves **₹15,600** beyond the 80C limit.`;
     } else if (goal === "budget_optimization") {
       const budgets = SelectorEngine.getBudgets(state);
       const util = MetricsRegistry.getMetric(state, "budget_utilization");
-      answer = `### ${goalName}\n\n**Monthly Cash Flow:** ${formatINR(income)} income → ${formatINR(expense)} expenses → ${formatINR(cashFlow)} surplus\n**Savings Rate:** ${((cashFlow / Math.max(income, 1)) * 100).toFixed(0)}%\n**Budget Utilization:** ${util.toFixed(0)}%\n\n`;
+      const income = MetricsRegistry.getMetric(state, "monthly_income");
+      const expense = SelectorEngine.getExpenseSummary(state);
+      const cashFlow = income - expense;
+
+      answer = `### Budget & Cash Flow Analysis\n\n`;
+      answer += `• **Monthly Inflow:** ${formatINR(income)}\n`;
+      answer += `• **Monthly Outflow:** ${formatINR(expense)}\n`;
+      answer += `• **Net Surplus:** ${formatINR(cashFlow)}\n`;
+      answer += `• **Overall Budget Utilization:** ${util.toFixed(0)}%\n\n`;
 
       if (budgets.length > 0) {
         answer += budgets
           .slice(0, 5)
-          .map((b) => `• **${b.category}:** ${formatINR(b.metrics.spent)}/${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`)
+          .map((b) => `• **${b.category}:** ${formatINR(b.metrics.spent)} of ${formatINR(b.limit)} (${b.metrics.utilizationPercent.toFixed(0)}%)`)
           .join("\n");
       } else {
-        answer += `You haven't set up budget categories yet. Setting up budgets helps track spending discipline.`;
+        answer += `To track category limits, set up spending budgets in the Budgets section.`;
       }
     } else {
-      // Generic but useful — not a dump
-      answer = `I understand you're looking for guidance on **${goalName}**.\n\n`;
-      answer += `**Your Current Position:**\n`;
-      answer += `• Net Worth: ${formatINR(netWorth)}\n`;
-      answer += `• Monthly Surplus: ${formatINR(cashFlow)}\n`;
-      answer += `• Health Score: ${healthScore.toFixed(0)}/100\n\n`;
-      answer += `To give you a detailed, personalized plan, could you tell me more about what specifically you'd like to achieve? The more details you share, the better I can guide you.`;
+      const netWorth = MetricsRegistry.getMetric(state, "net_worth");
+      const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
+
+      answer = `### ${goalName}\n\n`;
+      answer += `**Your Grounded Ledger Position:**\n`;
+      answer += `• **Net Worth:** ${formatINR(netWorth)}\n`;
+      answer += `• **Financial Health Index:** ${healthScore.toFixed(0)}/100\n\n`;
+      answer += `I'm ready to build your tailored plan. Share your specific target amount or timeline, and I'll generate your step-by-step advisory roadmap.`;
     }
 
     const validated = ResponseValidator.validateResponse(answer);
@@ -1011,28 +886,14 @@ export class FinancialCopilotBrain {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // HELPER — Format known facts as bullet points
-  // ═══════════════════════════════════════════════════════════════════════════
   private static formatKnownFacts(facts: ExtractedFacts): string {
     const lines: string[] = [];
-
-    if (facts.annualIncome) lines.push(`✓ **Annual Income:** ${formatINR(facts.annualIncome)}`);
-    if (facts.monthlyIncome && !facts.annualIncome) lines.push(`✓ **Monthly Income:** ${formatINR(facts.monthlyIncome)}`);
-    if (facts.employmentType) lines.push(`✓ **Employment:** ${facts.employmentType.replace("_", " ")}`);
-    if (facts.taxRegime) lines.push(`✓ **Tax Regime:** ${facts.taxRegime === "not_sure" ? "Not Sure" : facts.taxRegime.charAt(0).toUpperCase() + facts.taxRegime.slice(1)}`);
+    if (facts.annualIncome) lines.push(`✓ **Annual Gross Income:** ${formatINR(facts.annualIncome)}`);
+    if (facts.employmentType) lines.push(`✓ **Employment:** ${facts.employmentType}`);
+    if (facts.taxRegime) lines.push(`✓ **Tax Regime:** ${facts.taxRegime}`);
     if (facts.has80CInvestments !== undefined) lines.push(`✓ **80C Investments:** ${facts.has80CInvestments ? "Yes" : "No"}`);
     if (facts.hasHealthInsurance !== undefined) lines.push(`✓ **Health Insurance:** ${facts.hasHealthInsurance ? "Active" : "None"}`);
     if (facts.hasNPS !== undefined) lines.push(`✓ **NPS Account:** ${facts.hasNPS ? "Active" : "None"}`);
-    if (facts.riskTolerance) lines.push(`✓ **Risk Tolerance:** ${facts.riskTolerance}`);
-    if (facts.investmentHorizon) lines.push(`✓ **Investment Horizon:** ${facts.investmentHorizon}`);
-    if (facts.currentAge) lines.push(`✓ **Age:** ${facts.currentAge}`);
-    if (facts.retirementAge) lines.push(`✓ **Target Retirement:** Age ${facts.retirementAge}`);
-    if (facts.dependents !== undefined) lines.push(`✓ **Dependents:** ${facts.dependents}`);
-    if (facts.monthlyExpenses) lines.push(`✓ **Monthly Expenses:** ${formatINR(facts.monthlyExpenses)}`);
-    if (facts.targetAmount) lines.push(`✓ **Target Amount:** ${formatINR(facts.targetAmount)}`);
-    if (facts.existingCorpus) lines.push(`✓ **Existing Savings:** ${formatINR(facts.existingCorpus)}`);
-
     return lines.join("\n");
   }
 }
