@@ -16,7 +16,7 @@ export class RecommendationEngine {
 
     // 1. Check Emergency Fund / Liquidity
     const dashboard = SelectorEngine.getDashboard(state);
-    const monthlyExpenses = SelectorEngine.getMonthlyExpenseTotal(state);
+    const monthlyExpenses = SelectorEngine.getExpenseSummary(state);
     const recommendedEmergency = monthlyExpenses * 6;
 
     if (dashboard.liquidBalance < recommendedEmergency && monthlyExpenses > 0) {

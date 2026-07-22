@@ -133,6 +133,10 @@ export class SelectorEngine {
     return this.cachedExpenseSummary;
   }
 
+  public static getMonthlyExpenseTotal(state: State): number {
+    return this.getExpenseSummary(state);
+  }
+
   public static getCashFlowSummary(state: State): number {
     return this.getIncomeSummary(state) - this.getExpenseSummary(state);
   }
