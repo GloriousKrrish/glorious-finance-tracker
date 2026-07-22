@@ -137,6 +137,30 @@ export class SelectorEngine {
     return this.getExpenseSummary(state);
   }
 
+  public static getAccountBalancesSummary(state: State) {
+    const total = this.getTotalAccountBalance(state);
+    const accounts = state.accounts ?? [];
+    return {
+      totalBalance: total,
+      accountCount: accounts.length,
+      bankCount: accounts.filter((a) => a.type === "checking" || a.type === "savings" || a.type === "bank").length,
+      creditCardCount: accounts.filter((a) => a.type === "credit_card").length,
+    };
+  }
+
+  public static getPortfolioAnalysis(state: State) {
+    return this.getPortfolioSummary(state);
+  }
+
+  public static getFinancialHealthIndex(state: State): number {
+    const db = this.getDashboard(state);
+    return db.healthScore ?? 80;
+  }
+
+  public static getNetWorthTimeSeries(state: State, monthCount: number = 6) {
+    return this.getMonthlyTrends(state, monthCount);
+  }
+
   public static getCashFlowSummary(state: State): number {
     return this.getIncomeSummary(state) - this.getExpenseSummary(state);
   }
