@@ -15,6 +15,7 @@ import {
   OpportunityEngine,
   ScenarioEngine,
   GoalPlanner,
+  MetricsRegistry,
 } from "@/lib/financial-engine";
 
 import {
