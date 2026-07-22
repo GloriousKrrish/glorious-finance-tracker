@@ -116,7 +116,8 @@ function AssistantPage() {
     setBusy(true);
 
     try {
-      const copilotRes = await RAGEngine.processCopilotQuery(query, state, selectedCoach);
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      const copilotRes = await RAGEngine.processCopilotQuery(query, state, selectedCoach, history);
 
       const assistantMsg: Msg = {
         role: "assistant",

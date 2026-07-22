@@ -7,8 +7,8 @@ import { AICostOptimizer } from "./cost-optimizer";
 import { FinancialCoaches, type CoachType } from "./financial-coaches";
 import { ResponseValidator } from "./response-validator";
 import { CitationEngine, type CitationRef } from "./citation-engine";
-import { ContextEngine, SelectorEngine, MetricsRegistry } from "../financial-engine";
-import { callCopilotGemini } from "./copilot-server";
+import { SelectorEngine, MetricsRegistry } from "../financial-engine";
+import { callCopilotGemini, type CopilotChatHistoryMessage } from "./copilot-server";
 import { formatINR } from "../format";
 
 export interface CopilotResponse {
@@ -26,7 +26,8 @@ export class RAGEngine {
   public static async processCopilotQuery(
     userMessage: string,
     state: State,
-    coachType: CoachType = "wealth_coach"
+    coachType: CoachType = "wealth_coach",
+    history: CopilotChatHistoryMessage[] = []
   ): Promise<CopilotResponse> {
     const text = userMessage.trim();
 
@@ -55,6 +56,9 @@ export class RAGEngine {
       const validated = ResponseValidator.validateResponse(answer);
       const citations = CitationEngine.extractCitations(validated.sanitizedResponse, kbMatch.title);
 
+      // Cache Knowledge Base hit with source 'knowledge_base'
+      CacheEngine.setCachedResponse(text, validated.sanitizedResponse, intent, "knowledge_base");
+
       return {
         answerText: validated.sanitizedResponse,
         intent,
@@ -67,7 +71,7 @@ export class RAGEngine {
       };
     }
 
-    // ── Stage 4: Response Cache (0 tokens) ─────────────────────────────
+    // ── Stage 4: Response Cache Lookup (0 tokens) ──────────────────────
     const cached = CacheEngine.getCachedResponse(text);
     if (cached) {
       AICostOptimizer.recordQueryEvent("cache_hit", 0, 1000);
@@ -85,42 +89,37 @@ export class RAGEngine {
       };
     }
 
-    // ── Stage 5: Build system prompt with coach + Financial OS context ─
-    const coach = FinancialCoaches.getCoach(coachType);
-    const aiContext = ContextEngine.buildAiContext(state);
-
-    const systemPrompt = `${coach.systemInstruction}
-
-CRITICAL RULE: You MUST NEVER calculate Net Worth, Cash Flow, Savings Rate, Debt Ratios, or Forecasts yourself. These values are deterministically pre-calculated by the Financial Operating System and supplied in the context below. You are a presentation and advisory layer: your job is to explain these metrics, identify trends, answer questions, and offer friendly, concise, non-regulated coaching. Never invent or estimate numbers.
-
-The user's classified intent is: ${intent}. Focus your response on this topic area using the relevant Financial OS data below.
-
-FINANCIAL CONTEXT (JSON):
-${aiContext}`;
-
-    // ── Stage 6: Server-side Gemini API call ───────────────────────────
+    // ── Stage 5: Server Function Gemini Execution (Server-side Prompt & Context) ──
     let answerContent = "";
     let tokensUsed = 0;
 
     try {
       const geminiResult = await callCopilotGemini({
-        data: { userMessage: text, systemPrompt }
+        data: {
+          userMessage: text,
+          history,
+          state,
+          intent,
+          coachType,
+          kbArticleTitle: kbMatch?.title,
+          kbArticleDetails: kbMatch?.details
+        }
       });
 
       if (geminiResult.content) {
         answerContent = geminiResult.content;
         tokensUsed = geminiResult.tokensUsed;
       } else if (geminiResult.error) {
-        console.warn("[RAGEngine] Gemini unavailable:", geminiResult.error);
+        console.warn("[RAGEngine] Gemini server function returned error:", geminiResult.error);
       }
     } catch (err) {
       console.error("[RAGEngine] Server function call error:", err);
     }
 
-    // ── Stage 7: If Gemini succeeded, cache + return ───────────────────
+    // ── Stage 6: Success Handling (Gemini Response) ───────────────────
     if (answerContent) {
-      // Only cache actual Gemini responses — never cache fallbacks
-      CacheEngine.setCachedResponse(text, answerContent, intent);
+      // ONLY cache verified Gemini responses — NEVER cache fallback responses
+      CacheEngine.setCachedResponse(text, answerContent, intent, "gemini_llm");
       AICostOptimizer.recordQueryEvent("api_call", tokensUsed, 0);
 
       const validated = ResponseValidator.validateResponse(answerContent);
@@ -137,13 +136,10 @@ ${aiContext}`;
       };
     }
 
-    // ── Stage 8: Intent-aware fallback (no Gemini available) ───────────
-    // Instead of a single generic summary, produce a response
-    // grounded in Financial OS data relevant to the user's intent.
+    // ── Stage 7: Intent-Aware Deterministic Fallback ───────────────────
+    // If Gemini API key is missing or service is offline, return an intent-targeted
+    // Financial OS summary. This response is NEVER cached.
     const fallbackAnswer = this.buildIntentAwareFallback(intent, text, state);
-
-    // Do NOT cache fallback responses — they should be replaced
-    // by a real Gemini response once the key becomes available.
     AICostOptimizer.recordQueryEvent("api_call", 0, 0);
 
     const validated = ResponseValidator.validateResponse(fallbackAnswer);
@@ -161,8 +157,6 @@ ${aiContext}`;
   }
 
   // ── Intent-Aware Fallback Generator ────────────────────────────────
-  // Pulls relevant Financial OS data based on the classified intent,
-  // so even without Gemini, the response is specific to the question.
   private static buildIntentAwareFallback(
     intent: FinanceIntent,
     userQuery: string,
@@ -269,7 +263,6 @@ ${aiContext}`;
         }
 
         default: {
-          // GeneralFinance or unclassified — provide a broad but grounded summary
           const dashboard = SelectorEngine.getDashboard(state);
           const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
           return `### Financial Summary\n\nHere's a snapshot from your Financial OS:\n\n• **Net Worth:** ${fmt(dashboard.netWorth)}\n• **Health Score:** ${healthScore.toFixed(0)}/100\n• **Monthly Income:** ${fmt(SelectorEngine.getIncomeSummary(state))}\n• **Monthly Expenses:** ${fmt(SelectorEngine.getExpenseSummary(state))}\n• **Active Loans:** ${SelectorEngine.getActiveLoans(state).length}\n• **Active Goals:** ${SelectorEngine.getActiveGoals(state).length}\n\nAsk me about a specific topic — budgets, investments, loans, taxes, or savings — for detailed analysis grounded in your data.`;

@@ -135,6 +135,135 @@ export class ContextEngine {
 
     return JSON.stringify(context, null, 2);
   }
+
+  /**
+   * Builds an intent-sliced context payload containing only metrics relevant to the classified intent.
+   * Prevents dumping full state logs while ensuring maximum precision and minimal token consumption.
+   */
+  public static buildIntentSlicedContext(state: State, intent: string): string {
+    const netWorth = MetricsRegistry.getMetric(state, "net_worth");
+    const income = MetricsRegistry.getMetric(state, "monthly_income");
+    const expense = MetricsRegistry.getMetric(state, "monthly_expense");
+    const cashFlow = MetricsRegistry.getMetric(state, "cash_flow");
+    const savingsRate = MetricsRegistry.getMetric(state, "savings_rate");
+    const healthScore = MetricsRegistry.getMetric(state, "financial_health_score");
+
+    const baseHeader = {
+      timestamp: new Date().toISOString(),
+      user_type: state.profile?.userType ?? "personal",
+      financial_health_score: `${healthScore}/100`,
+      net_worth: formatINR(netWorth),
+    };
+
+    let slice: Record<string, any> = {};
+
+    switch (intent) {
+      case "Budget":
+      case "Expense":
+      case "Income":
+      case "CashFlow":
+      case "Savings": {
+        const budgets = SelectorEngine.getBudgets(state);
+        slice = {
+          monthly_income: formatINR(income),
+          monthly_expense: formatINR(expense),
+          monthly_cash_flow: formatINR(cashFlow),
+          savings_rate: `${savingsRate.toFixed(1)}%`,
+          budget_utilization: `${MetricsRegistry.getMetric(state, "budget_utilization").toFixed(0)}%`,
+          budget_categories: budgets.map((b) => ({
+            category: b.category,
+            limit: formatINR(b.limit),
+            spent: formatINR(b.metrics.spent),
+            utilization: `${b.metrics.utilizationPercent.toFixed(0)}%`,
+            status: b.metrics.spent > b.limit ? "OVERSPENT" : "OK",
+          })),
+        };
+        break;
+      }
+
+      case "Loan":
+      case "Debt": {
+        const activeLoans = SelectorEngine.getActiveLoans(state);
+        slice = {
+          total_liabilities: formatINR(MetricsRegistry.getMetric(state, "total_liabilities")),
+          debt_to_asset_ratio: `${(MetricsRegistry.getMetric(state, "debt_ratio") * 100).toFixed(1)}%`,
+          active_loans: activeLoans.map((l) => ({
+            name: l.name,
+            outstanding: formatINR(l.outstanding),
+            emi: formatINR(l.emi),
+            interest_rate: `${l.rate}%`,
+            institution: l.institution,
+          })),
+        };
+        break;
+      }
+
+      case "Investment":
+      case "Portfolio":
+      case "MutualFund":
+      case "Stocks":
+      case "Gold": {
+        const portfolio = SelectorEngine.getPortfolioSummary(state);
+        slice = {
+          total_portfolio_value: formatINR(portfolio.totalCurrent),
+          total_invested: formatINR(portfolio.totalInvested),
+          unrealized_gain_loss: formatINR(portfolio.totalCurrent - portfolio.totalInvested),
+          asset_allocation: portfolio.allocation ?? [],
+          holdings_summary: (state.investments ?? []).map((inv) => ({
+            name: inv.name,
+            asset_class: inv.assetClass,
+            current_value: formatINR(inv.currentValue),
+            invested_amount: formatINR(inv.investedAmount),
+          })),
+        };
+        break;
+      }
+
+      case "Tax":
+      case "GST": {
+        const totalExp = SelectorEngine.getExpenseSummary(state);
+        slice = {
+          annualized_income: formatINR(income * 12),
+          annualized_expense: formatINR(totalExp * 12),
+          estimated_tax_deductions_available: {
+            section_80c_limit: "₹1,50,000",
+            section_80d_limit: "₹25,000",
+            section_80ccd_1b_nps_limit: "₹50,000",
+          },
+        };
+        break;
+      }
+
+      case "Goals":
+      case "Retirement": {
+        const activeGoals = SelectorEngine.getActiveGoals(state);
+        slice = {
+          emergency_fund_coverage: `${MetricsRegistry.getMetric(state, "emergency_fund_coverage").toFixed(1)} months`,
+          goals: activeGoals.map((g) => ({
+            name: g.name,
+            target: formatINR(g.target),
+            saved: formatINR(g.saved),
+            progress: `${g.metrics.progress.toFixed(0)}%`,
+            health: g.metrics.goalHealth,
+          })),
+        };
+        break;
+      }
+
+      default: {
+        slice = {
+          monthly_income: formatINR(income),
+          monthly_expense: formatINR(expense),
+          monthly_cash_flow: formatINR(cashFlow),
+          savings_rate: `${savingsRate.toFixed(1)}%`,
+          active_loans_count: SelectorEngine.getActiveLoans(state).length,
+          active_goals_count: SelectorEngine.getActiveGoals(state).length,
+        };
+      }
+    }
+
+    return JSON.stringify({ ...baseHeader, ...slice }, null, 2);
+  }
 }
 
 export class InsightEngine {
