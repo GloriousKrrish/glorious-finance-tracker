@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { ContextEngine, type State } from "../financial-engine";
 import { FinancialCoaches, type CoachType } from "./financial-coaches";
 import { ResponseValidator } from "./response-validator";
+import type { ExtractedFacts, PlanningGoal } from "./copilot-brain";
 
 export interface CopilotChatHistoryMessage {
   role: "user" | "assistant";
@@ -16,6 +17,11 @@ export interface CopilotServerRequestPayload {
   coachType?: CoachType;
   kbArticleTitle?: string;
   kbArticleDetails?: string;
+  // ── NEW: Goal-Driven Context ──
+  goalContext?: string;
+  goalType?: PlanningGoal;
+  goalName?: string;
+  extractedFacts?: ExtractedFacts;
 }
 
 export interface CopilotServerResponsePayload {
@@ -28,8 +34,7 @@ export interface CopilotServerResponsePayload {
 /**
  * Server-side Financial Copilot Service.
  * Executed STRICTLY on the server via TanStack Start createServerFn.
- * Protects API keys, builds server-side intent-sliced prompt, formats multi-turn history,
- * and calls Gemini API cleanly.
+ * Now goal-aware: receives planning goal, extracted facts, and Financial OS context.
  */
 export const callCopilotGemini = createServerFn({ method: "POST" })
   .validator((input: CopilotServerRequestPayload) => {
@@ -56,35 +61,63 @@ export const callCopilotGemini = createServerFn({ method: "POST" })
     const coachType = data.coachType || "wealth_coach";
     const coach = FinancialCoaches.getCoach(coachType);
 
-    // ── 1. Server-Side Context Builder (Intent Slicing) ────────────────
-    const slicedContextJson = ContextEngine.buildIntentSlicedContext(data.state, intent);
+    // ── 1. Build Context ──
+    // Prefer goal-specific context if available, otherwise fall back to intent-sliced
+    const context = data.goalContext || ContextEngine.buildIntentSlicedContext(data.state, intent);
 
-    // ── 2. Server-Side System Prompt Assembly ──────────────────────────
+    // ── 2. Build Goal-Aware System Prompt ──
+    const goalName = data.goalName || "Financial Advisory";
+    const goalType = data.goalType || "general_finance";
+
+    // Format extracted facts for the prompt
+    let factsBlock = "";
+    if (data.extractedFacts && Object.keys(data.extractedFacts).length > 0) {
+      const entries = Object.entries(data.extractedFacts)
+        .filter(([_, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => `  ${k}: ${v}`);
+      if (entries.length > 0) {
+        factsBlock = `\nUSER-PROVIDED FACTS (verified, do NOT re-ask these):\n${entries.join("\n")}`;
+      }
+    }
+
     let systemPrompt = `${coach.systemInstruction}
 
-CRITICAL ARCHITECTURAL DIRECTIVE:
-1. You are the GloriousFinance Copilot. All monetary values are in Indian Rupees (₹) unless specified otherwise.
-2. You MUST NEVER calculate Net Worth, Cash Flow, Savings Rate, Debt Ratios, Tax Slabs, or Forecasts yourself. These numbers are deterministically computed by the Financial Operating System and supplied in the CONTEXT below.
-3. Your role is purely advisory, explanatory, and editorial. Present the numbers, explain trends, answer user queries, and offer friendly, non-regulated coaching. Never invent, estimate, or hallucinate metrics.
+CRITICAL BEHAVIORAL DIRECTIVES:
 
-CLASSIFIED INTENT: ${intent}
-COACH PERSONA: ${coach.name} (${coach.roleTitle})
+1. You are the GloriousFinance Financial Copilot — a combined Chartered Accountant + Certified Financial Planner + Investment Advisor.
+2. All monetary values are in Indian Rupees (₹).
+3. NEVER calculate Net Worth, Cash Flow, Savings Rate, Debt Ratios, Tax Slabs, or Forecasts yourself. These are deterministically computed by the Financial OS and supplied below.
+4. Your role is to REASON, ADVISE, COACH, and PLAN — not to dump data.
+5. Speak naturally, like a trusted financial advisor sitting across the table. Not like documentation.
+6. NEVER start with "Financial Overview" or "Financial Snapshot" unless explicitly asked.
+7. When giving advice, structure it as an ACTION PLAN with priorities, estimated benefits, timelines, and next steps.
+8. If this is a planning session (tax planning, investment strategy, retirement, etc.), generate a structured plan — NOT paragraphs.
+9. Do NOT use generic filler phrases like "consult a qualified financial advisor" — YOU are the advisor.
 
-FINANCIAL OS CONTEXT (SLICED FOR INTENT '${intent}'):
-${slicedContextJson}`;
+USER'S PLANNING GOAL: ${goalName} (type: ${goalType})
+COACH PERSONA: ${coach.name} — ${coach.roleTitle}
+
+FINANCIAL OS CONTEXT:
+${context}
+${factsBlock}
+
+RESPONSE FORMAT:
+- Use markdown with headers, bullet points, and bold for key numbers
+- For planning goals, use a structured action plan format with Priority 1, Priority 2, etc.
+- Include estimated benefits (₹ amounts) wherever possible
+- End with clear Next Steps
+- Keep responses focused and actionable — no fluff`;
 
     if (data.kbArticleTitle && data.kbArticleDetails) {
-      systemPrompt += `\n\nRELEVANT KNOWLEDGE BASE REFERENCE:
-Topic: ${data.kbArticleTitle}
-Details: ${data.kbArticleDetails}`;
+      systemPrompt += `\n\nKNOWLEDGE BASE REFERENCE:\nTopic: ${data.kbArticleTitle}\nDetails: ${data.kbArticleDetails}`;
     }
 
     const isDirectGemini = apiKey.startsWith("AQ.") || apiKey.startsWith("AIzaSy");
 
-    // ── 3. Multi-Turn Conversation History Assembly ───────────────────
+    // ── 3. Multi-Turn Conversation History ──
     const history = data.history ?? [];
     const sanitizedHistory = history
-      .slice(-6) // Keep last 6 messages for token efficiency & strong focus
+      .slice(-8) // Keep last 8 messages for stronger conversational context
       .filter((m) => m.content && m.content.trim() !== "");
 
     try {
@@ -92,7 +125,7 @@ Details: ${data.kbArticleDetails}`;
       let tokensUsed = 0;
 
       if (isDirectGemini) {
-        // Direct Google Generative AI API Format
+        // Direct Google Generative AI API
         const contentsPayload = [
           ...sanitizedHistory.map((m) => ({
             role: m.role === "assistant" ? "model" : "user",
@@ -133,7 +166,7 @@ Details: ${data.kbArticleDetails}`;
           };
         }
       } else {
-        // Lovable AI Gateway Fallback Format
+        // Lovable AI Gateway Fallback
         const messagesPayload = [
           { role: "system", content: systemPrompt },
           ...sanitizedHistory.map((m) => ({
@@ -180,7 +213,7 @@ Details: ${data.kbArticleDetails}`;
         };
       }
 
-      // ── 4. Server-Side Response Validation ───────────────────────────
+      // ── 4. Response Validation ──
       const validation = ResponseValidator.validateResponse(rawContent);
 
       return {

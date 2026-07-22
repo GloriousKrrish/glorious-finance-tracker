@@ -135,11 +135,16 @@ function AssistantPage() {
     }
   };
 
+  // Handle follow-up option button clicks
+  const handleOptionClick = (option: string) => {
+    handleSend(option);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-background p-4 md:p-8 space-y-6">
       <PageHeader
         title="Financial Copilot Studio"
-        description="Domain-restricted financial intelligence, persona-based advisory coaches, and AI cost optimizer."
+        description="Your personal CA + Financial Planner + Investment Advisor — powered by your Financial OS data."
       />
 
       {/* COPILOT ADVISORY SUMMARY BAR */}
@@ -242,7 +247,7 @@ function AssistantPage() {
                 <div className="py-10 text-center text-xs text-muted-foreground space-y-3">
                   <Bot className="h-8 w-8 mx-auto text-primary/60 animate-pulse" />
                   <p className="font-semibold text-foreground">Welcome to Financial Copilot Studio</p>
-                  <p className="max-w-md mx-auto">Ask any personal finance, tax, loan, or investment question. I provide grounded financial analysis tailored to your ledger.</p>
+                  <p className="max-w-md mx-auto">I'm your personal CA + Financial Planner + Investment Advisor. Ask me anything about taxes, investments, loans, budgets, or financial planning. I'll guide you step by step.</p>
                   <div className="flex flex-wrap justify-center gap-2 pt-2">
                     {currentCoachObj.sampleQuestions.map((q, idx) => (
                       <button
@@ -270,6 +275,40 @@ function AssistantPage() {
                     }`}>
                       <ReactMarkdown>{m.content}</ReactMarkdown>
 
+                      {/* PLANNING WORKFLOW PROGRESS BAR */}
+                      {m.responseMeta?.workflowState && m.responseMeta.workflowState.phase === "collecting_info" && (
+                        <div className="mt-3 border-t border-border/40 pt-3">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1.5">
+                            <span className="font-semibold">Planning Progress</span>
+                            <span>{m.responseMeta.workflowState.questionsAsked} of {m.responseMeta.workflowState.questionsTotal}</span>
+                          </div>
+                          <div className="w-full bg-muted/60 rounded-full h-1.5">
+                            <div
+                              className="bg-primary rounded-full h-1.5 transition-all duration-500"
+                              style={{
+                                width: `${(m.responseMeta.workflowState.questionsAsked / m.responseMeta.workflowState.questionsTotal) * 100}%`
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* FOLLOW-UP OPTION BUTTONS */}
+                      {m.responseMeta?.followUpOptions && m.responseMeta.followUpOptions.length > 0 && idx === messages.length - 1 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {m.responseMeta.followUpOptions.map((option, oi) => (
+                            <button
+                              key={oi}
+                              onClick={() => handleOptionClick(option)}
+                              disabled={busy}
+                              className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/10 hover:border-primary/50 transition-all disabled:opacity-50"
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       {/* CLEAN USER-FACING BADGES (NO PROVIDER LEAKAGE) */}
                       {m.responseMeta && (
                         <div className="mt-3 border-t border-border/40 pt-2 flex flex-wrap items-center gap-2 text-[10px]">
@@ -292,7 +331,7 @@ function AssistantPage() {
               {busy && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span>Financial Copilot is reasoning and checking Financial OS context...</span>
+                  <span>Financial Copilot is reasoning...</span>
                 </div>
               )}
               <div ref={bottomRef} />
@@ -304,7 +343,7 @@ function AssistantPage() {
             <Textarea
               ref={areaRef}
               rows={1}
-              placeholder={`Ask ${currentCoachObj.name} a question... (e.g. "How is my budget utilization?")`}
+              placeholder={`Ask ${currentCoachObj.name} a question... (e.g. "I earn 17L, help me save tax")`}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => {
@@ -335,7 +374,7 @@ function AssistantPage() {
                   <div key={r.id} className="rounded border border-red-500/30 bg-red-500/5 p-3 space-y-1">
                     <span className="font-bold text-foreground block">{r.title}</span>
                     <p className="text-muted-foreground">{r.description}</p>
-                    <span className="text-[10px] text-red-400 font-semibold block pt-1">Mitigation: {r.actionableMitigation}</span>
+                    <span className="text-[10px] text-red-400 font-semibold block pt-1">Mitigation: {r.remedy}</span>
                   </div>
                 ))}
               </CardContent>
@@ -352,7 +391,7 @@ function AssistantPage() {
                   <div key={o.id} className="rounded border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
                     <span className="font-bold text-foreground block">{o.title}</span>
                     <p className="text-muted-foreground">{o.description}</p>
-                    <span className="text-[10px] text-amber-500 font-semibold block pt-1">Potential Gain: {formatINR(o.estimatedFinancialGain)}</span>
+                    <span className="text-[10px] text-amber-500 font-semibold block pt-1">Benefit: {o.benefit}</span>
                   </div>
                 ))}
               </CardContent>
