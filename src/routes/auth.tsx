@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,25 +33,53 @@ function AuthPage() {
     try {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
-          email, password,
+          email,
+          password,
           options: { emailRedirectTo: window.location.origin, data: { full_name: name } },
         });
         if (error) throw error;
-        toast.success("Welcome to GloriousFinance");
+        toast.success("Welcome to GloriousFinance. Check your email to verify your account.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("Signed in");
+        toast.success("Signed in successfully");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Authentication failed");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const google = async () => {
     setBusy(true);
-    const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (res.error) { toast.error(res.error.message); setBusy(false); }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) {
+      toast.error(error.message);
+      setBusy(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email) {
+      toast.error("Please enter your email address first");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      toast.success("Password reset instructions sent to your email.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send reset email");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -105,6 +132,13 @@ function AuthPage() {
               )}
               <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
               <div><Label>Password</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></div>
+              {mode === "signin" && (
+                <div className="text-right">
+                  <button type="button" onClick={handlePasswordReset} className="text-xs font-medium text-muted-foreground hover:text-primary">
+                    Forgot password?
+                  </button>
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={busy}>
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {mode === "signin" ? "Sign in" : "Create account"}

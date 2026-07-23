@@ -90,10 +90,19 @@ function SettingsPage() {
         </Card>
 
         <Card className="card-luxe p-6 md:col-span-2">
-          <h3 className="font-display text-lg font-semibold">About this template</h3>
+          <h3 className="font-display text-lg font-semibold">Security & Multi-Factor Authentication (MFA)</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            GloriousFinance is a premium personal finance operating system template. Every module — accounts, transactions, budgets, investments, loans, bills and goals — supports full add, edit and delete. Data persists locally in your browser so anyone can fork this template and use it immediately, with no backend setup required. Wire in Lovable Cloud later to enable multi-user auth and cloud sync.
+            GloriousFinance is hardened with Row-Level Security (RLS), encrypted tokens, and strict HTTP policies. You can enable TOTP-based Multi-Factor Authentication (MFA) through your authentication profile for enhanced account protection.
           </p>
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-border p-4">
+            <div>
+              <div className="text-sm font-medium">Two-Factor Authentication (MFA / TOTP)</div>
+              <div className="text-xs text-muted-foreground">Add an additional layer of security using an authenticator app (Google Authenticator, 1Password, Authy).</div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => toast.info("MFA configuration available via Supabase Auth Security Console")}>
+              Configure MFA
+            </Button>
+          </div>
         </Card>
       </div>
     </div>

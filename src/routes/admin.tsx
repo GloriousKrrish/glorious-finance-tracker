@@ -47,6 +47,8 @@ import { DocumentVaultEngine, type VaultFile } from "@/lib/enterprise/vault";
 import { SystemHealthEngine, type HealthMetric } from "@/lib/enterprise/health";
 import { FeatureFlagEngine, type FeatureFlag, type FeatureKey } from "@/lib/enterprise/feature-flags";
 
+import { useAuth } from "@/lib/auth-context";
+
 export const Route = createFileRoute("/admin")({
   component: AdminConsolePage,
 });
@@ -54,8 +56,23 @@ export const Route = createFileRoute("/admin")({
 type TabKey = "dashboard" | "workspaces" | "rbac" | "vault" | "health" | "flags" | "audit";
 
 function AdminConsolePage() {
+  const { role } = useAuth();
   const { state, dispatch, activeWorkspaceId } = useStore();
   const [activeTab, setActiveTab] = React.useState<TabKey>("dashboard");
+
+  if (role !== "admin") {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <Card className="card-luxe max-w-md p-6 text-center">
+          <Shield className="mx-auto h-12 w-12 text-destructive" />
+          <h2 className="mt-4 font-display text-xl font-semibold">Access Restricted</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            You require administrator permissions to access the enterprise admin console.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   // State managers
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>([]);
