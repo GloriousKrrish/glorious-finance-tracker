@@ -115,7 +115,7 @@ export class WorkflowEngine {
             action.title || wf.name,
             action.config.messageTemplate || `Automated workflow action triggered for ${wf.name}`,
             "system",
-            action.config.priority || "medium",
+            action.config.priority === "normal" ? "medium" : (action.config.priority || "medium"),
             "/automation",
             [action.config.channel || "in_app"]
           );

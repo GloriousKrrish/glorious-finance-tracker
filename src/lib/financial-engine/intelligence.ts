@@ -212,8 +212,8 @@ export class ContextEngine {
           holdings_summary: (state.investments ?? []).map((inv) => ({
             name: inv.name,
             asset_class: inv.assetClass,
-            current_value: formatINR(inv.current),
-            invested_amount: formatINR(inv.invested),
+            current_value: formatINR(inv.current ?? 0),
+            invested_amount: formatINR(inv.invested ?? 0),
           })),
         };
         break;
