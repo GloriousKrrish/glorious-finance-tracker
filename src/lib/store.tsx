@@ -308,28 +308,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
       eventType = "loan.created";
       payload = finalAction.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "create", newValue: `Loan: ${action.payload.name} (Principal: ₹${action.payload.principal})`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan" as any, action: "create", newValue: `Loan: ${action.payload.name} (Principal: ₹${action.payload.principal})`, result: "success" });
     } else if (action.type === "loan:update") {
       eventType = "loan.updated";
       payload = action.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "update", newValue: `Loan: ${action.payload.name}`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan" as any, action: "update", newValue: `Loan: ${action.payload.name}`, result: "success" });
     } else if (action.type === "loan:remove") {
       eventType = "loan.deleted";
       payload = action.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan", action: "delete", newValue: `Loan ID: ${action.payload}`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "loan" as any, action: "delete", newValue: `Loan ID: ${action.payload}`, result: "success" });
     } else if (action.type === "bill:add") {
       finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
       eventType = "bill.created";
       payload = finalAction.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "create", newValue: `Bill: ${action.payload.name} (Amount: ₹${action.payload.amount})`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill" as any, action: "create", newValue: `Bill: ${action.payload.name} (Amount: ₹${action.payload.amount})`, result: "success" });
     } else if (action.type === "bill:update") {
       eventType = "bill.updated";
       payload = action.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "update", newValue: `Bill: ${action.payload.name}`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill" as any, action: "update", newValue: `Bill: ${action.payload.name}`, result: "success" });
     } else if (action.type === "bill:remove") {
       eventType = "bill.deleted";
       payload = action.payload;
-      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill", action: "delete", newValue: `Bill ID: ${action.payload}`, result: "success" });
+      AuditLogEngine.log({ user: state.profile.email || "user@example.com", workspaceId: activeWs, entity: "bill" as any, action: "delete", newValue: `Bill ID: ${action.payload}`, result: "success" });
     } else if (action.type === "goal:add") {
       finalAction = { ...action, payload: { ...action.payload, workspaceId: activeWs } };
       eventType = "goal.created";

@@ -81,25 +81,29 @@ function AssistantPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedCoach, setSelectedCoach] = useState<CoachType>("wealth_coach");
+  const [activeTab, setActiveTab] = useState("copilot");
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const busyRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  const risks = useMemo(() => (loading ? [] : RiskEngine.getRisks(state)), [state, loading]);
-  const opportunities = useMemo(() => (loading ? [] : OpportunityEngine.getOpportunities(state)), [state, loading]);
-  const recommendations = useMemo(() => (loading ? [] : RecommendationEngine.generateRecommendations(state)), [state, loading]);
+  // Compute heavy intelligence engines only when the user selects those tabs or state changes
+  const risks = useMemo(() => (loading || activeTab === "copilot" ? [] : RiskEngine.getRisks(state)), [state, loading, activeTab]);
+  const opportunities = useMemo(() => (loading || activeTab === "copilot" ? [] : OpportunityEngine.getOpportunities(state)), [state, loading, activeTab]);
+  const recommendations = useMemo(() => (loading || activeTab === "copilot" ? [] : RecommendationEngine.generateRecommendations(state)), [state, loading, activeTab]);
 
   const currentCoachObj = FinancialCoaches.getCoach(selectedCoach);
   const CoachIcon = COACH_ICONS[selectedCoach] || Sparkles;
 
   const handleSend = async (userQuery?: string) => {
     const query = userQuery || input.trim();
-    if (!query || busy) return;
+    if (!query || busyRef.current) return;
 
+    busyRef.current = true;
     const userMsg: Msg = { role: "user", content: query };
     setMessages((prev) => [...prev, userMsg]);
     if (!userQuery) setInput("");
@@ -120,6 +124,7 @@ function AssistantPage() {
       toast.error(err.message || "Failed to generate AI response");
     } finally {
       setBusy(false);
+      busyRef.current = false;
     }
   };
 
@@ -134,7 +139,7 @@ function AssistantPage() {
         subtitle="Conversational intelligence combining ChatGPT reasoning with CFP + CA + Wealth Management expertise."
       />
 
-      <Tabs defaultValue="copilot" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-muted/40 border border-border/60">
           <TabsTrigger value="copilot" className="text-xs font-medium">Conversational Advisor</TabsTrigger>
           <TabsTrigger value="insights" className="text-xs font-medium">Risk & Opportunities ({risks.length + opportunities.length})</TabsTrigger>

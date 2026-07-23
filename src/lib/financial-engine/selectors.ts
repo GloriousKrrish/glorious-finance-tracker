@@ -143,7 +143,7 @@ export class SelectorEngine {
     return {
       totalBalance: total,
       accountCount: accounts.length,
-      bankCount: accounts.filter((a) => a.type === "checking" || a.type === "savings" || a.type === "bank").length,
+      bankCount: accounts.filter((a) => (a.type as string) === "checking" || (a.type as string) === "savings" || a.type === "bank").length,
       creditCardCount: accounts.filter((a) => a.type === "credit_card").length,
     };
   }

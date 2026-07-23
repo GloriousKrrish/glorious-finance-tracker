@@ -45,7 +45,7 @@ export class NotificationCenterEngine {
     const item = list.find(n => n.id === id);
     if (item) {
       const snoozeTime = new Date();
-      snoozedTimeSetHours(snoozeTime, snoozeTime.getHours() + hours);
+      snoozeTime.setHours(snoozeTime.getHours() + hours);
       item.snoozedUntil = snoozeTime.toISOString();
     }
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(list));

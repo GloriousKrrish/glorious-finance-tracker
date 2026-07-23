@@ -59,7 +59,7 @@ export class PluginSDK {
       `[Plugin: ${pluginName}] ${title}`,
       body,
       "system",
-      "normal",
+      "medium",
       "/developer",
       ["in_app"]
     );

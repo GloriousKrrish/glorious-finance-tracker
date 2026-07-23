@@ -564,16 +564,14 @@ export class FinancialCopilotBrain {
     const intent = IntentEngine.classifyIntent(text);
     const goal = GoalDetector.detectGoal(text, intent);
 
-    // ── STEP 1: Fact Extraction & Memory ──
+    // ── STEP 1: Fast Fact Extraction & Async Memory ──
     const existingFacts = MemoryManager.getFacts();
     const updatedFacts = FactExtractor.extractFacts(text, existingFacts);
-
-    for (const msg of history) {
-      if (msg.role === "user") {
-        Object.assign(updatedFacts, FactExtractor.extractFacts(msg.content, updatedFacts));
-      }
-    }
-    MemoryManager.saveFacts(updatedFacts);
+    
+    // Asynchronously update facts in storage without blocking response generation
+    setTimeout(() => {
+      MemoryManager.saveFacts(updatedFacts);
+    }, 0);
 
     // ── STEP 2: General Non-Finance Questions (Python, Elon Musk, etc.) ──
     if (domainCheck.isGeneralKnowledge) {

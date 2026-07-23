@@ -174,7 +174,7 @@ export class ContextEngine {
             category: b.category,
             limit: formatINR(b.limit),
             spent: formatINR(b.metrics.spent),
-            utilization: `${b.metrics.utilizationPercent.toFixed(0)}%`,
+            utilization: `${b.metrics.utilization.toFixed(0)}%`,
             status: b.metrics.spent > b.limit ? "OVERSPENT" : "OK",
           })),
         };
@@ -205,15 +205,15 @@ export class ContextEngine {
       case "Gold": {
         const portfolio = SelectorEngine.getPortfolioSummary(state);
         slice = {
-          total_portfolio_value: formatINR(portfolio.totalCurrent),
-          total_invested: formatINR(portfolio.totalInvested),
-          unrealized_gain_loss: formatINR(portfolio.totalCurrent - portfolio.totalInvested),
-          asset_allocation: portfolio.allocation ?? [],
+          total_portfolio_value: formatINR(portfolio.portfolioValue),
+          total_invested: formatINR(portfolio.portfolioInvested),
+          unrealized_gain_loss: formatINR(portfolio.unrealizedPl),
+          asset_allocation: [],
           holdings_summary: (state.investments ?? []).map((inv) => ({
             name: inv.name,
             asset_class: inv.assetClass,
-            current_value: formatINR(inv.currentValue),
-            invested_amount: formatINR(inv.investedAmount),
+            current_value: formatINR(inv.current),
+            invested_amount: formatINR(inv.invested),
           })),
         };
         break;

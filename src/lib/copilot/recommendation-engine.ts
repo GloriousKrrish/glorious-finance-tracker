@@ -63,14 +63,14 @@ export class RecommendationEngine {
 
     // 4. Investment SIP Check
     const portfolio = SelectorEngine.getPortfolioAnalysis(state);
-    if (portfolio.totalCurrent > 0) {
+    if (portfolio.portfolioValue > 0) {
       recs.push({
         id: "rec_sip_rebalance",
         category: "investment",
         priority: "medium",
         title: "Maintain Disciplined Equity SIPs",
         actionableStep: "Keep monthly automated SIPs running across diversified broad-market index or flexi-cap funds.",
-        groundedMetric: `Current Investment Portfolio: ₹${portfolio.totalCurrent.toLocaleString("en-IN")} across ${state.investments.length} holdings`
+        groundedMetric: `Current Investment Portfolio: ₹${portfolio.portfolioValue.toLocaleString("en-IN")} across ${state.investments?.length ?? 0} holdings`
       });
     }
 

@@ -555,8 +555,8 @@ export class GoalOptimizationEngine {
     const goals = state.goals ?? [];
     
     return goals.map((goal) => {
-      const remainingAmount = Math.max(0, goal.targetAmount - goal.currentAmount);
-      const targetYear = goal.targetDate ? new Date(goal.targetDate).getFullYear() : new Date().getFullYear() + 5;
+      const remainingAmount = Math.max(0, goal.target - goal.saved);
+      const targetYear = goal.deadline ? new Date(goal.deadline).getFullYear() : new Date().getFullYear() + 5;
       const yearsLeft = Math.max(1, targetYear - new Date().getFullYear());
       
       const monthlyRequiredCurrent = remainingAmount / (yearsLeft * 12);
@@ -579,8 +579,8 @@ export class GoalOptimizationEngine {
       return {
         goalId: goal.id,
         name: goal.name,
-        targetAmount: goal.targetAmount,
-        currentAmount: goal.currentAmount,
+        targetAmount: goal.target,
+        currentAmount: goal.saved,
         targetYear,
         monthlyRequiredCurrent: Math.round(monthlyRequiredCurrent),
         monthlyRequiredOptimized: Math.round(monthlyRequiredOptimized),
