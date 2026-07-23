@@ -5,21 +5,36 @@ export interface ValidationResult {
 }
 
 export class ResponseValidator {
+  private static INTERNAL_TERMS: RegExp[] = [
+    /\bFinancial OS\b/gi,
+    /\bMetrics Registry\b/gi,
+    /\bSelector Engine\b/gi,
+    /\bPlanning Engine\b/gi,
+    /\bForecast Engine\b/gi,
+    /\bCache Engine\b/gi,
+    /\bGemini\b/gi,
+    /\bLLM\b/gi,
+    /\bProvider\b/gi,
+    /\bInternal Architecture\b/gi,
+  ];
+
   public static validateResponse(responseText: string): ValidationResult {
-    let sanitized = responseText;
+    let sanitized = responseText || "";
     const violations: string[] = [];
 
-    // 1. Mandatory Disclaimer check
-    const disclaimer = "\n\n*Disclaimer: GloriousFinance Copilot provides educational financial guidance and analysis based on your ledger parameters. For legally binding tax filing or regulated financial advice, please consult a certified professional.*";
-
-    if (!sanitized.includes("Disclaimer:")) {
-      sanitized += disclaimer;
+    // Strip/replace any leaked internal system terminology
+    for (const pattern of this.INTERNAL_TERMS) {
+      if (pattern.test(sanitized)) {
+        violations.push(`Leaked internal term matching ${pattern}`);
+        sanitized = sanitized.replace(pattern, "financial advisor system");
+      }
     }
 
     return {
       isValid: violations.length === 0,
-      sanitizedResponse: sanitized,
-      violationsDetected: violations
+      sanitizedResponse: sanitized.trim(),
+      violationsDetected: violations,
     };
   }
 }
+

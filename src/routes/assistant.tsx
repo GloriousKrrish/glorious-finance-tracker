@@ -2,45 +2,34 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store";
-import { formatINR } from "@/lib/format";
 import { toast } from "sonner";
 import {
-  InsightEngine,
   RiskEngine,
   OpportunityEngine,
-  ScenarioEngine,
-  GoalPlanner,
-  MetricsRegistry,
 } from "@/lib/financial-engine";
 
 import {
   RAGEngine,
   FinancialCoaches,
-  AICostOptimizer,
   RecommendationEngine,
   type CoachType,
   type CopilotResponse,
-  type CostOptimizerMetrics
 } from "@/lib/copilot";
 
 import {
   Sparkles,
   SendHorizonal,
   Loader2,
-  AlertTriangle,
   Lightbulb,
   ShieldAlert,
-  Play,
   TrendingUp,
-  ArrowRight,
   Shield,
   Bot,
-  Zap,
   PiggyBank,
   FileText,
   Target,
@@ -48,13 +37,11 @@ import {
   Building,
   Activity,
   CheckCircle,
-  Coins,
-  DollarSign,
-  BookOpen
+  BookOpen,
 } from "lucide-react";
 
 export const Route = createFileRoute("/assistant")({
-  head: () => ({ meta: [{ title: "Financial Copilot Studio · GloriousFinance" }] }),
+  head: () => ({ meta: [{ title: "AI Financial Advisor · GloriousFinance" }] }),
   component: AssistantPage,
 });
 
@@ -74,18 +61,26 @@ const COACH_ICONS: Record<CoachType, any> = {
   wealth_coach: Sparkles,
   business_assistant: Building,
   portfolio_analyst: Activity,
-  health_advisor: CheckCircle
+  health_advisor: CheckCircle,
 };
+
+const RECOMMENDED_PROMPTS = [
+  "I earn ₹17 lakh salary. Help me save tax.",
+  "Should I choose Old or New Tax Regime?",
+  "What is SIP and how does Rupee Cost Averaging work?",
+  "Should I buy gold or invest in equity SIPs?",
+  "Explain inflation and how to protect my money.",
+  "How much did I spend this month?",
+  "How is my investment portfolio doing?",
+];
 
 function AssistantPage() {
   const { state, loading } = useStore();
 
-  // Chat & Copilot state
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedCoach, setSelectedCoach] = useState<CoachType>("wealth_coach");
-  const [costMetrics, setCostMetrics] = useState<CostOptimizerMetrics>(AICostOptimizer.getMetrics());
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -94,12 +89,6 @@ function AssistantPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  const refreshCostMetrics = () => {
-    setCostMetrics(AICostOptimizer.getMetrics());
-  };
-
-  // Intelligence summaries
-  const insights = useMemo(() => (loading ? [] : InsightEngine.getInsights(state)), [state, loading]);
   const risks = useMemo(() => (loading ? [] : RiskEngine.getRisks(state)), [state, loading]);
   const opportunities = useMemo(() => (loading ? [] : OpportunityEngine.getOpportunities(state)), [state, loading]);
   const recommendations = useMemo(() => (loading ? [] : RecommendationEngine.generateRecommendations(state)), [state, loading]);
@@ -112,97 +101,52 @@ function AssistantPage() {
     if (!query || busy) return;
 
     const userMsg: Msg = { role: "user", content: query };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     if (!userQuery) setInput("");
     setBusy(true);
 
     try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const copilotRes = await RAGEngine.processCopilotQuery(query, state, selectedCoach, history);
 
       const assistantMsg: Msg = {
         role: "assistant",
         content: copilotRes.answerText,
-        responseMeta: copilotRes
+        responseMeta: copilotRes,
       };
 
-      setMessages(prev => [...prev, assistantMsg]);
-      refreshCostMetrics();
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
-      toast.error(err.message || "Failed to generate copilot response");
+      toast.error(err.message || "Failed to generate AI response");
     } finally {
       setBusy(false);
     }
   };
 
-  // Handle follow-up option button clicks
   const handleOptionClick = (option: string) => {
     handleSend(option);
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-background p-4 md:p-8 space-y-6">
+    <div className="flex flex-col min-h-screen bg-background p-4 md:p-8 space-y-6 max-w-6xl mx-auto">
       <PageHeader
-        title="Financial Copilot Studio"
-        description="Your personal CA + Financial Planner + Investment Advisor — powered by your Financial OS data."
+        title="AI Financial Advisor"
+        subtitle="Conversational intelligence combining ChatGPT reasoning with CFP + CA + Wealth Management expertise."
       />
-
-      {/* COPILOT ADVISORY SUMMARY BAR */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border-border/50 bg-background/50">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Financial Health Score</CardDescription>
-            <CardTitle className="text-xl font-bold text-emerald-500">{MetricsRegistry.getMetric(state, "financial_health_score").toFixed(0)}/100</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-[10px] text-muted-foreground">Deterministic Financial OS Grade</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/50 bg-background/50">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Tracked Accounts</CardDescription>
-            <CardTitle className="text-xl font-bold text-primary">{state.accounts?.length ?? 0} active</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-[10px] text-muted-foreground">Real-time ledger connections</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/50 bg-background/50">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Monitored Budgets</CardDescription>
-            <CardTitle className="text-xl font-bold text-emerald-500">{state.budgets?.length ?? 0} categories</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-[10px] text-muted-foreground">Automated spending limits</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/50 bg-background/50">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] uppercase tracking-wider font-semibold">Active Goals & Loans</CardDescription>
-            <CardTitle className="text-xl font-bold text-foreground">{(state.goals?.length ?? 0) + (state.loans?.length ?? 0)} tracked</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-[10px] text-muted-foreground">Planning & debt optimization</p>
-          </CardContent>
-        </Card>
-      </div>
 
       <Tabs defaultValue="copilot" className="space-y-6">
         <TabsList className="bg-muted/40 border border-border/60">
-          <TabsTrigger value="copilot" className="text-xs">Financial Copilot Studio</TabsTrigger>
-          <TabsTrigger value="insights" className="text-xs">Intelligence & Risks ({risks.length})</TabsTrigger>
-          <TabsTrigger value="recommendations" className="text-xs">Grounded Recommendations ({recommendations.length})</TabsTrigger>
+          <TabsTrigger value="copilot" className="text-xs font-medium">Conversational Advisor</TabsTrigger>
+          <TabsTrigger value="insights" className="text-xs font-medium">Risk & Opportunities ({risks.length + opportunities.length})</TabsTrigger>
+          <TabsTrigger value="recommendations" className="text-xs font-medium">Strategic Recommendations ({recommendations.length})</TabsTrigger>
         </TabsList>
 
-        {/* FINANCIAL COPILOT TAB */}
-        <TabsContent value="copilot" className="space-y-6">
-          {/* COACH PERSONA SELECTOR */}
+        {/* CONVERSATIONAL ADVISOR TAB */}
+        <TabsContent value="copilot" className="space-y-4">
+          {/* ADVISOR PERSONA SELECTOR */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border/40 pb-3">
-            <span className="text-xs font-semibold text-muted-foreground mr-2">Advisor Persona:</span>
-            {Object.values(FinancialCoaches.COACHES).map(c => {
+            <span className="text-xs font-semibold text-muted-foreground mr-2">Specialization Focus:</span>
+            {Object.values(FinancialCoaches.COACHES).map((c) => {
               const Icon = COACH_ICONS[c.type] || Sparkles;
               const isSelected = selectedCoach === c.type;
               return (
@@ -222,8 +166,8 @@ function AssistantPage() {
             })}
           </div>
 
-          {/* ACTIVE COACH HEADER */}
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 flex items-center justify-between">
+          {/* ACTIVE ADVISOR HEADER */}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 flex items-center justify-between shadow-xs">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-primary/20 p-2 text-primary">
                 <CoachIcon className="h-5 w-5" />
@@ -233,31 +177,40 @@ function AssistantPage() {
                 <p className="text-xs text-muted-foreground">{currentCoachObj.roleTitle}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
-                Financial OS Grounded
-              </span>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <span className="font-medium">AI Brain Active</span>
             </div>
           </div>
 
           {/* CHAT MESSAGES WINDOW */}
-          <Card className="border-border/60 bg-background/30">
-            <CardContent className="p-4 md:p-6 space-y-4 max-h-[500px] overflow-y-auto">
+          <Card className="border-border/60 bg-background/50 shadow-sm">
+            <CardContent className="p-4 md:p-6 space-y-4 min-h-[420px] max-h-[560px] overflow-y-auto">
               {messages.length === 0 ? (
-                <div className="py-10 text-center text-xs text-muted-foreground space-y-3">
-                  <Bot className="h-8 w-8 mx-auto text-primary/60 animate-pulse" />
-                  <p className="font-semibold text-foreground">Welcome to Financial Copilot Studio</p>
-                  <p className="max-w-md mx-auto">I'm your personal CA + Financial Planner + Investment Advisor. Ask me anything about taxes, investments, loans, budgets, or financial planning. I'll guide you step by step.</p>
-                  <div className="flex flex-wrap justify-center gap-2 pt-2">
-                    {currentCoachObj.sampleQuestions.map((q, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleSend(q)}
-                        className="rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground hover:border-primary/50 hover:text-foreground transition-all"
-                      >
-                        {q}
-                      </button>
-                    ))}
+                <div className="py-12 text-center text-xs text-muted-foreground space-y-4">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto text-primary">
+                    <Bot className="h-6 w-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-bold text-sm text-foreground">Welcome to GloriousFinance AI</p>
+                    <p className="max-w-lg mx-auto text-muted-foreground">
+                      Ask me anything about investments, tax optimization, retirement, loans, general finance concepts, or your personal ledger finances. I reason before answering to give you clear, actionable guidance.
+                    </p>
+                  </div>
+
+                  <div className="pt-4 max-w-2xl mx-auto">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Suggested Conversations</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {RECOMMENDED_PROMPTS.map((q, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleSend(q)}
+                          className="rounded-full border border-border/70 bg-background/80 px-3.5 py-1.5 text-[11px] text-foreground hover:border-primary/60 hover:bg-primary/5 transition-all shadow-2xs"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -268,40 +221,24 @@ function AssistantPage() {
                         <CoachIcon className="h-4 w-4" />
                       </div>
                     )}
-                    <div className={`max-w-[80%] rounded-lg p-3.5 leading-relaxed ${
+                    <div className={`max-w-[85%] rounded-xl p-4 leading-relaxed ${
                       m.role === "user"
-                        ? "bg-primary text-primary-foreground"
+                        ? "bg-primary text-primary-foreground shadow-xs"
                         : "bg-muted/40 border border-border/60 text-foreground"
                     }`}>
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
-
-                      {/* PLANNING WORKFLOW PROGRESS BAR */}
-                      {m.responseMeta?.workflowState && m.responseMeta.workflowState.phase === "collecting_info" && (
-                        <div className="mt-3 border-t border-border/40 pt-3">
-                          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1.5">
-                            <span className="font-semibold">Planning Progress</span>
-                            <span>{m.responseMeta.workflowState.questionsAsked} of {m.responseMeta.workflowState.questionsTotal}</span>
-                          </div>
-                          <div className="w-full bg-muted/60 rounded-full h-1.5">
-                            <div
-                              className="bg-primary rounded-full h-1.5 transition-all duration-500"
-                              style={{
-                                width: `${(m.responseMeta.workflowState.questionsAsked / m.responseMeta.workflowState.questionsTotal) * 100}%`
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
+                      <div className="prose prose-xs dark:prose-invert max-w-none space-y-2">
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
 
                       {/* FOLLOW-UP OPTION BUTTONS */}
                       {m.responseMeta?.followUpOptions && m.responseMeta.followUpOptions.length > 0 && idx === messages.length - 1 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="mt-4 flex flex-wrap gap-2 pt-2 border-t border-border/40">
                           {m.responseMeta.followUpOptions.map((option, oi) => (
                             <button
                               key={oi}
                               onClick={() => handleOptionClick(option)}
                               disabled={busy}
-                              className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/10 hover:border-primary/50 transition-all disabled:opacity-50"
+                              className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
                             >
                               {option}
                             </button>
@@ -309,16 +246,12 @@ function AssistantPage() {
                         </div>
                       )}
 
-                      {/* CLEAN USER-FACING BADGES (NO PROVIDER LEAKAGE) */}
-                      {m.responseMeta && (
+                      {/* CITATIONS */}
+                      {m.responseMeta?.citations && m.responseMeta.citations.length > 0 && (
                         <div className="mt-3 border-t border-border/40 pt-2 flex flex-wrap items-center gap-2 text-[10px]">
-                          <span className="rounded bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-500">
-                            ✓ {m.responseMeta.userFacingLabel || "Personalized financial analysis"}
-                          </span>
-
                           {m.responseMeta.citations.map((cit, cIdx) => (
-                            <span key={cIdx} className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-500 font-semibold flex items-center gap-1">
-                              <BookOpen className="h-2.5 w-2.5" />
+                            <span key={cIdx} className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-500 font-medium flex items-center gap-1">
+                              <BookOpen className="h-3 w-3" />
                               {cit.referenceTag}
                             </span>
                           ))}
@@ -329,9 +262,9 @@ function AssistantPage() {
                 ))
               )}
               {busy && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span>Financial Copilot is reasoning...</span>
+                  <span>AI Financial Advisor is reasoning...</span>
                 </div>
               )}
               <div ref={bottomRef} />
@@ -339,22 +272,22 @@ function AssistantPage() {
           </Card>
 
           {/* INPUT FORM */}
-          <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="flex items-center gap-2">
+          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-2">
             <Textarea
               ref={areaRef}
               rows={1}
-              placeholder={`Ask ${currentCoachObj.name} a question... (e.g. "I earn 17L, help me save tax")`}
+              placeholder={`Ask ${currentCoachObj.name}... (e.g. "I earn ₹17L salary, help me save tax" or "What is SIP?")`}
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
-              className="min-h-[44px] text-xs resize-none border-border/60 bg-background/50"
+              className="min-h-[46px] text-xs resize-none border-border/60 bg-background/60 focus-visible:ring-primary"
             />
-            <Button type="submit" size="icon" disabled={busy || !input.trim()} className="h-[44px] w-[44px] shrink-0">
+            <Button type="submit" size="icon" disabled={busy || !input.trim()} className="h-[46px] w-[46px] shrink-0">
               <SendHorizonal className="h-4 w-4" />
             </Button>
           </form>
@@ -366,11 +299,11 @@ function AssistantPage() {
             <Card className="border-border/60 bg-background/30">
               <CardHeader>
                 <CardTitle className="text-sm font-bold flex items-center gap-2 text-red-500">
-                  <ShieldAlert className="h-4 w-4" /> Financial Risk Assessment ({risks.length})
+                  <ShieldAlert className="h-4 w-4" /> Financial Risks ({risks.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
-                {risks.map(r => (
+                {risks.map((r) => (
                   <div key={r.id} className="rounded border border-red-500/30 bg-red-500/5 p-3 space-y-1">
                     <span className="font-bold text-foreground block">{r.title}</span>
                     <p className="text-muted-foreground">{r.description}</p>
@@ -387,7 +320,7 @@ function AssistantPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
-                {opportunities.map(o => (
+                {opportunities.map((o) => (
                   <div key={o.id} className="rounded border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
                     <span className="font-bold text-foreground block">{o.title}</span>
                     <p className="text-muted-foreground">{o.description}</p>
@@ -402,7 +335,7 @@ function AssistantPage() {
         {/* GROUNDED RECOMMENDATIONS */}
         <TabsContent value="recommendations" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            {recommendations.map(rec => (
+            {recommendations.map((rec) => (
               <Card key={rec.id} className="border-border/60 bg-background/40">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -416,9 +349,6 @@ function AssistantPage() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-xs">
                   <p className="text-foreground font-medium">{rec.actionableStep}</p>
-                  <div className="rounded bg-muted/40 p-2 font-mono text-[10px] text-muted-foreground border border-border/40">
-                    {rec.groundedMetric}
-                  </div>
                 </CardContent>
               </Card>
             ))}

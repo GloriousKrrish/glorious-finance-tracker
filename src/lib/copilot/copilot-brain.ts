@@ -521,12 +521,12 @@ export class FinancialOSConnector {
     // Portfolio direct query
     if (/\b(my portfolio|my investments?|holdings|what do i own|how is my portfolio)\b/i.test(q)) {
       const summary = SelectorEngine.getPortfolioSummary(state);
-      if (summary.totalInvested === 0 && summary.totalCurrent === 0) {
+      if (summary.portfolioInvested === 0 && summary.portfolioValue === 0) {
         return "You don't have any investment holdings recorded in your ledger yet. Would you like me to help you build an investment strategy?";
       }
 
-      const gain = summary.totalCurrent - summary.totalInvested;
-      return `Based on your ledger, your portfolio is currently valued at **${formatINR(summary.totalCurrent)}** across **${state.investments?.length ?? 0} holdings**.\n\n• **Total Invested Capital:** ${formatINR(summary.totalInvested)}\n• **Unrealized P&L:** ${gain >= 0 ? "+" : ""}${formatINR(gain)}\n\nWould you like me to review your asset allocation or recommend rebalancing options?`;
+      const gain = summary.unrealizedPl;
+      return `Based on your ledger, your portfolio is currently valued at **${formatINR(summary.portfolioValue)}** across **${state.investments?.length ?? 0} holdings**.\n\n• **Total Invested Capital:** ${formatINR(summary.portfolioInvested)}\n• **Unrealized P&L:** ${gain >= 0 ? "+" : ""}${formatINR(gain)}\n\nWould you like me to review your asset allocation or recommend rebalancing options?`;
     }
 
     // Loan direct query
@@ -548,6 +548,8 @@ export class FinancialOSConnector {
 // ══════════════════════════════════════════════════════════════════════════════
 // 6. CENTRAL FINANCIAL COPILOT BRAIN — Conversational Orchestrator
 // ══════════════════════════════════════════════════════════════════════════════
+// 6. CENTRAL FINANCIAL COPILOT BRAIN — Conversational Orchestrator
+// ══════════════════════════════════════════════════════════════════════════════
 export class FinancialCopilotBrain {
   public static async processQuery(
     userQuery: string,
@@ -557,24 +559,12 @@ export class FinancialCopilotBrain {
   ): Promise<CopilotBrainResult> {
     const text = userQuery.trim();
 
-    // ── STEP 0: Domain Guard Check ──
+    // ── STEP 0: Domain & Scope Check ──
     const domainCheck = DomainGuard.checkDomain(text);
-    if (!domainCheck.isFinanceRelated) {
-      return {
-        answerText: "I specialize exclusively in personal finance, investments, tax planning, and financial management. I can't assist with sports or non-financial topics, but feel free to ask me anything about your money or investments!",
-        userFacingLabel: "General financial knowledge",
-        isFollowUpRequired: false,
-        citations: [],
-        intent: "NonFinance",
-        domainCheck,
-      };
-    }
-
-    // ── STEP 1: Goal Detection ──
     const intent = IntentEngine.classifyIntent(text);
     const goal = GoalDetector.detectGoal(text, intent);
 
-    // ── STEP 2: Fact Extraction ──
+    // ── STEP 1: Fact Extraction & Memory ──
     const existingFacts = MemoryManager.getFacts();
     const updatedFacts = FactExtractor.extractFacts(text, existingFacts);
 
@@ -583,16 +573,20 @@ export class FinancialCopilotBrain {
         Object.assign(updatedFacts, FactExtractor.extractFacts(msg.content, updatedFacts));
       }
     }
-
     MemoryManager.saveFacts(updatedFacts);
+
+    // ── STEP 2: General Non-Finance Questions (Python, Elon Musk, etc.) ──
+    if (domainCheck.isGeneralKnowledge) {
+      return await this.executeAIReasoning(text, goal, state, updatedFacts, coachType, history, intent, domainCheck);
+    }
 
     // ── STEP 3: Natural Greetings ──
     if (goal === "greeting_help") {
-      const greeting = `Hello! I'm your Financial Copilot. How can I assist you with your money, investments, or taxes today?`;
+      const greeting = `Hello! I'm your AI Financial Advisor. I'm here to assist you with wealth management, tax optimization, investment strategies, loans, or retirement planning. How can I help you today?`;
 
       return {
         answerText: greeting,
-        userFacingLabel: "Based on your financial data",
+        userFacingLabel: "Educational guidance",
         isFollowUpRequired: false,
         citations: [],
         intent,
@@ -600,43 +594,26 @@ export class FinancialCopilotBrain {
       };
     }
 
-    // ── STEP 4: Educational Concepts ──
-    if (goal === "definition_explanation") {
-      const kbArticle = FinanceKnowledgeBase.searchKnowledgeBase(text);
-      if (kbArticle) {
-        const answer = `**${kbArticle.title}**\n\n${kbArticle.details}\n\n*${kbArticle.summary}*`;
-        const validated = ResponseValidator.validateResponse(answer);
-        const citations = CitationEngine.extractCitations(validated.sanitizedResponse, kbArticle.title);
+    // ── STEP 4: Personal Financial Data Queries (Portfolio, Loans, Budgets) ──
+    if (domainCheck.isPersonalFinanceDataRequired) {
+      const directAnswer = FinancialOSConnector.getDirectDataAnswer(goal, state, text);
+      if (directAnswer) {
+        const validated = ResponseValidator.validateResponse(directAnswer);
+        const citations = CitationEngine.extractCitations(validated.sanitizedResponse);
 
         return {
           answerText: validated.sanitizedResponse,
-          userFacingLabel: "Educational guidance",
+          userFacingLabel: "Personalized financial analysis",
           isFollowUpRequired: false,
           citations,
           intent,
           domainCheck,
+          extractedFacts: updatedFacts,
         };
       }
     }
 
-    // ── STEP 5: Direct OS Queries (Portfolio, Loans) ──
-    const directAnswer = FinancialOSConnector.getDirectDataAnswer(goal, state, text);
-    if (directAnswer) {
-      const validated = ResponseValidator.validateResponse(directAnswer);
-      const citations = CitationEngine.extractCitations(validated.sanitizedResponse);
-
-      return {
-        answerText: validated.sanitizedResponse,
-        userFacingLabel: "Based on your financial data",
-        isFollowUpRequired: false,
-        citations,
-        intent,
-        domainCheck,
-        extractedFacts: updatedFacts,
-      };
-    }
-
-    // ── STEP 6: Advisory Follow-Up Question Flow ──
+    // ── STEP 5: Advisory Follow-Up Question Flow ──
     const isAdvisoryGoal = ![
       "definition_explanation",
       "greeting_help",
@@ -644,7 +621,7 @@ export class FinancialCopilotBrain {
       "budget_optimization",
     ].includes(goal);
 
-    if (isAdvisoryGoal) {
+    if (isAdvisoryGoal && domainCheck.isPersonalFinanceDataRequired) {
       const missingQuestions = MissingInfoAnalyzer.getMissingQuestions(goal, updatedFacts, state);
 
       if (missingQuestions.length > 0) {
@@ -655,24 +632,24 @@ export class FinancialCopilotBrain {
         let response = "";
 
         if (goal === "tax_saving_plan") {
-          response = `I'd be happy to help you create a personalized tax plan.`;
+          response = `I'd be happy to help you create a personalized tax optimization strategy.`;
           if (updatedFacts.annualIncome) {
-            response += `\n\nFrom your message I understand:\n✓ Annual Salary: ${formatINR(updatedFacts.annualIncome)}`;
+            response += `\n\n**Known Details:**\n✓ Annual Income: ${formatINR(updatedFacts.annualIncome)}`;
           }
-          response += `\n\nBefore I calculate your taxes, I need a few more details.\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
+          response += `\n\nTo give you an exact calculation, I just need a couple more details.\n\n**Question ${answeredCount + 1}:** ${nextQuestion.question}`;
         } else if (goal === "investment_strategy") {
-          response = `I can help you build an investment strategy.`;
+          response = `I can help you construct a tailored investment strategy.`;
           if (updatedFacts.monthlyInvestable) {
-            response += `\n\nFrom your message I understand:\n✓ Monthly Investment: ${formatINR(updatedFacts.monthlyInvestable)}`;
+            response += `\n\n**Known Details:**\n✓ Monthly Investable: ${formatINR(updatedFacts.monthlyInvestable)}`;
           }
-          response += `\n\nTo tailor the right asset allocation, I need a few details.\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
+          response += `\n\nTo recommend the ideal asset allocation, let me ask:\n\n**Question ${answeredCount + 1}:** ${nextQuestion.question}`;
         } else {
           const knownFacts = this.formatKnownFacts(updatedFacts);
-          response = `I can help you with your financial planning.`;
+          response = `I can help you build your financial plan.`;
           if (knownFacts) {
-            response += `\n\nFrom what you've shared:\n${knownFacts}`;
+            response += `\n\nFrom our conversation so far:\n${knownFacts}`;
           }
-          response += `\n\n**Question ${answeredCount + 1} of ${totalQuestions}:**\n${nextQuestion.question}`;
+          response += `\n\n**Question ${answeredCount + 1}:** ${nextQuestion.question}`;
         }
 
         const workflowState: WorkflowState = {
@@ -698,7 +675,7 @@ export class FinancialCopilotBrain {
       }
     }
 
-    // ── STEP 7: Full AI Reasoning (Server-Side AI or Local Fallback) ──
+    // ── STEP 6: AI Conversational Reasoning (Server Call or Natural Fallback) ──
     return await this.executeAIReasoning(text, goal, state, updatedFacts, coachType, history, intent, domainCheck);
   }
 
@@ -715,7 +692,9 @@ export class FinancialCopilotBrain {
     intent: FinanceIntent,
     domainCheck: DomainGuardCheck
   ): Promise<CopilotBrainResult> {
-    const goalContext = FinancialOSConnector.buildGoalContext(goal, state, facts);
+    const goalContext = domainCheck.isPersonalFinanceDataRequired
+      ? FinancialOSConnector.buildGoalContext(goal, state, facts)
+      : "General knowledge / world finance question. No personal ledger data needed.";
     const goalName = GoalDetector.getGoalDisplayName(goal);
 
     let aiContent = "";
@@ -749,7 +728,7 @@ export class FinancialCopilotBrain {
 
       return {
         answerText: validated.sanitizedResponse,
-        userFacingLabel: "Personalized financial analysis",
+        userFacingLabel: domainCheck.isPersonalFinanceDataRequired ? "Personalized financial analysis" : "Educational guidance",
         isFollowUpRequired: false,
         citations,
         intent,
@@ -759,21 +738,45 @@ export class FinancialCopilotBrain {
     }
 
     // ── Natural Conversational Fallback ──
-    return this.generateNaturalConversationalFallback(goal, state, facts, intent, domainCheck);
+    return this.generateNaturalConversationalFallback(query, goal, state, facts, intent, domainCheck);
   }
 
   private static generateNaturalConversationalFallback(
+    query: string,
     goal: PlanningGoal,
     state: State,
     facts: ExtractedFacts,
     intent: FinanceIntent,
     domainCheck: DomainGuardCheck
   ): CopilotBrainResult {
-    const annualInc = facts.annualIncome || 1700000;
-
+    const q = query.toLowerCase().trim();
     let answer = "";
 
-    if (goal === "tax_saving_plan") {
+    // ── Harmless General Non-Finance Questions (Python, Elon Musk, etc.) ──
+    if (domainCheck.isGeneralKnowledge) {
+      if (q.includes("python")) {
+        answer = `Python is a popular, high-level programming language known for its simple syntax, versatility, and readability. It is widely used in data analysis, financial modeling, machine learning, web development, and automation.\n\n*Note: While I can answer general knowledge questions, my primary expertise is in financial planning, taxation, wealth management, and investment advisory! Feel free to ask any financial questions.*`;
+      } else if (q.includes("elon musk")) {
+        answer = `Elon Musk is a prominent technology entrepreneur and business magnate. He is the CEO of Tesla, CEO and CTO of SpaceX, owner of X (formerly Twitter), and founder of Neuralink and The Boring Company.\n\n*Note: While I can answer general knowledge questions, my primary expertise is in financial planning, taxation, wealth management, and investment advisory! Feel free to ask any financial questions.*`;
+      } else if (q.includes("machine learning")) {
+        answer = `Machine learning is a subfield of artificial intelligence (AI) focused on building algorithms that learn patterns from data to make predictions or decisions without being explicitly programmed.\n\n*Note: While I can answer general knowledge questions, my primary expertise is in financial planning, taxation, wealth management, and investment advisory! Feel free to ask any financial questions.*`;
+      } else {
+        answer = `That is an interesting general question! I'd be happy to answer concisely, but please remember my core specialization is as your personal AI Financial Advisor. Feel free to ask me about tax planning, investments, SIPs, loans, or wealth management anytime!`;
+      }
+    }
+    // ── Concept Questions (SIP, Gold, Inflation, ETF, Buffett, etc.) ──
+    else if (q.includes("sip") || q.includes("systematic investment")) {
+      answer = `**Systematic Investment Plan (SIP)** is a method of investing a fixed sum of money into mutual funds at regular intervals (monthly or quarterly).\n\n**Key Advantages:**\n• **Rupee Cost Averaging:** You buy more fund units when prices are low and fewer units when prices are high, lowering your average cost per unit over time.\n• **Disciplined Compounding:** Small regular investments benefit immensely from the power of compounding over long investment horizons.\n• **Eliminates Market Timing:** You don't need to guess market tops or bottoms.\n\nWould you like help deciding between SIP vs Lumpsum or calculating potential SIP returns for a specific goal?`;
+    } else if (q.includes("gold") || q.includes("buy gold")) {
+      answer = `Investing in gold serves as a classical hedge against inflation and currency devaluation, providing portfolio stability during market downturns.\n\n**Best Ways to Invest in Gold:**\n1. **Sovereign Gold Bonds (SGBs):** Issued by the RBI, offering 2.5% annual interest + capital gains exemption if held to maturity.\n2. **Gold ETFs / Gold Mutual Funds:** Highly liquid, transparent pricing tracking 24k physical gold prices without storage hassle.\n3. **Physical Gold:** Bars or coins (carries making charges and storage overhead).\n\n**Financial Advisor Rule of Thumb:** Allocate **5% to 10%** of your total portfolio to gold to balance risk without hindering long-term equity growth.`;
+    } else if (q.includes("inflation")) {
+      answer = `**Inflation** is the rate at which the general level of prices for goods and services rises, eroding the purchasing power of your money over time.\n\n**Impact on Your Money:**\nIf inflation is 6% per year, an item costing ₹100 today will cost ₹106 next year. Keeping cash in low-yield savings accounts (2-3%) means losing real purchasing power every year.\n\n**How to Beat Inflation:**\n• **Equities & Mutual Funds:** Historically deliver 12-15% CAGR, beating 6% inflation.\n• **Real Estate & Gold:** Act as tangible inflation hedges.\n• **Avoid Cash Hoarding:** Maintain an emergency fund in liquid assets, but invest surplus cash into inflation-beating assets.`;
+    } else if (q.includes("etf") || q.includes("exchange traded fund")) {
+      answer = `An **Exchange Traded Fund (ETF)** is a basket of securities (stocks, bonds, or commodities) that trades on a stock exchange just like an individual stock.\n\n**ETF vs Mutual Fund:**\n• **Trading:** ETFs trade live on stock exchanges throughout market hours; Mutual Funds trade once daily at end-of-day NAV.\n• **Cost:** ETFs generally have lower expense ratios (0.05% - 0.20%) compared to active mutual funds.\n• **Requirements:** You need a Demat and Trading account to buy ETFs.`;
+    } else if (q.includes("buffett") || q.includes("warren buffett")) {
+      answer = `**Warren Buffett's Investing Philosophy** centers on **Value Investing** and long-term wealth compounding:\n\n1. **Economic Moats:** Invest in companies with durable competitive advantages (strong brands, high switching costs, scale).\n2. **Margin of Safety:** Buy great businesses when their market price is significantly below their intrinsic value.\n3. **Long Holding Periods:** *"Our favorite holding period is forever."*\n4. **Low-Cost Index Funds for Most Investors:** Buffett strongly recommends that non-professional investors regularly buy low-cost S&P 500 or broad index funds.`;
+    } else if (goal === "tax_saving_plan") {
+      const annualInc = facts.annualIncome || 1700000;
       const taxPlan = TaxEngine.calculateIndiaTax(annualInc, {
         sec80C: facts.has80CInvestments ? 150000 : 0,
         sec80D: facts.hasHealthInsurance ? 25000 : 0,
@@ -783,27 +786,24 @@ export class FinancialCopilotBrain {
         other: 0,
       });
 
-      answer = `Based on your gross annual income of **${formatINR(annualInc)}**, here is your tax comparison and optimization plan:\n\n`;
-      answer += `**1. New Tax Regime (Default):**\n`;
-      answer += `• Total Tax Payable: **${formatINR(taxPlan.newRegimeResult.totalTax)}** *(Includes ₹75,000 Standard Deduction)*\n\n`;
-      answer += `**2. Old Tax Regime:**\n`;
-      answer += `• Total Tax Payable: **${formatINR(taxPlan.oldRegimeResult.totalTax)}**\n\n`;
-      answer += `💡 **Regime Recommendation:** The **${taxPlan.optimalRegime.toUpperCase()} Tax Regime** is currently more beneficial, saving you **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}** per year.\n\n`;
-      answer += `---\n\n`;
-      answer += `**Key Tax Saving Opportunities:**\n`;
-      answer += `• **Section 80C (Up to ₹1.5L):** Invest in ELSS Mutual Funds or PPF to save up to ₹46,800.\n`;
-      answer += `• **Section 80D (Up to ₹75K):** Health insurance premiums for self and parents save up to ₹23,400.\n`;
-      answer += `• **Section 80CCD(1B) (₹50K):** NPS Tier-1 investments yield an extra ₹15,600 tax saving.`;
+      answer = `Here is a tax comparison based on an annual gross income of **${formatINR(annualInc)}**:\n\n`;
+      answer += `• **New Tax Regime (Default):** Total Tax: **${formatINR(taxPlan.newRegimeResult.totalTax)}** *(Includes ₹75,000 Standard Deduction)*\n`;
+      answer += `• **Old Tax Regime:** Total Tax: **${formatINR(taxPlan.oldRegimeResult.totalTax)}**\n\n`;
+      answer += `💡 **Recommendation:** The **${taxPlan.optimalRegime.toUpperCase()} Tax Regime** is currently more tax-efficient for you, saving **${formatINR(taxPlan.taxSavingsWithOptimalRegime)}**.\n\n`;
+      answer += `**Key Tax Saving Avenues:**\n`;
+      answer += `• **Section 80C (Up to ₹1.5L):** ELSS Mutual Funds, PPF, or EPF.\n`;
+      answer += `• **Section 80D (Up to ₹75K):** Health insurance premiums for self and parents.\n`;
+      answer += `• **Section 80CCD(1B) (₹50K):** Exclusive NPS Tier-1 deduction.`;
     } else if (goal === "investment_strategy") {
       const amount = facts.monthlyInvestable || 20000;
-      answer = `Investing **${formatINR(amount)} monthly** is a fantastic strategy to build long-term wealth.\n\n`;
-      answer += `**Recommended Asset Allocation:**\n`;
-      answer += `• **Large-Cap / Flexi-Cap Index Funds (60%):** ${formatINR(amount * 0.6)}/mo for core long-term growth.\n`;
-      answer += `• **Mid-Cap & Small-Cap Funds (25%):** ${formatINR(amount * 0.25)}/mo for higher alpha.\n`;
-      answer += `• **Fixed Income / Debt Funds (15%):** ${formatINR(amount * 0.15)}/mo for portfolio stability.\n\n`;
-      answer += `Over 10 years at an estimated 12% annual return, a ${formatINR(amount)}/mo SIP could grow to approximately **₹46.4 Lakhs** (on ₹24 Lakhs invested).`;
+      answer = `Investing **${formatINR(amount)} monthly** is an effective way to build long-term wealth.\n\n`;
+      answer += `**Suggested Asset Allocation:**\n`;
+      answer += `• **Flexi-Cap / Index Funds (60%):** ${formatINR(amount * 0.6)}/mo for core market exposure.\n`;
+      answer += `• **Mid-Cap & Small-Cap Funds (25%):** ${formatINR(amount * 0.25)}/mo for growth.\n`;
+      answer += `• **Debt / Liquid Funds (15%):** ${formatINR(amount * 0.15)}/mo for stability.\n\n`;
+      answer += `Assuming a conservative 12% CAGR, a ${formatINR(amount)} monthly SIP over 10 years accumulates to approximately **₹46.4 Lakhs**.`;
     } else {
-      answer = `I'd be happy to guide you with your finances. Could you share what specific financial goal or question you'd like to address today?`;
+      answer = `I'd be happy to assist you! As your AI Financial Advisor, I can help you analyze investments, compare tax regimes, optimize debt, or plan for major life goals. What would you like to explore today?`;
     }
 
     const validated = ResponseValidator.validateResponse(answer);
@@ -811,7 +811,7 @@ export class FinancialCopilotBrain {
 
     return {
       answerText: validated.sanitizedResponse,
-      userFacingLabel: "Based on your financial data",
+      userFacingLabel: domainCheck.isPersonalFinanceDataRequired ? "Personalized financial analysis" : "Educational guidance",
       isFollowUpRequired: false,
       citations,
       intent,
@@ -822,7 +822,7 @@ export class FinancialCopilotBrain {
 
   private static formatKnownFacts(facts: ExtractedFacts): string {
     const lines: string[] = [];
-    if (facts.annualIncome) lines.push(`✓ **Annual Salary:** ${formatINR(facts.annualIncome)}`);
+    if (facts.annualIncome) lines.push(`✓ **Annual Income:** ${formatINR(facts.annualIncome)}`);
     if (facts.employmentType) lines.push(`✓ **Employment:** ${facts.employmentType}`);
     if (facts.taxRegime) lines.push(`✓ **Tax Regime:** ${facts.taxRegime}`);
     if (facts.has80CInvestments !== undefined) lines.push(`✓ **80C Investments:** ${facts.has80CInvestments ? "Yes" : "No"}`);
@@ -830,3 +830,4 @@ export class FinancialCopilotBrain {
     return lines.join("\n");
   }
 }
+
