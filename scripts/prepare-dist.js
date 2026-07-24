@@ -26,6 +26,24 @@ const htmlContent = `<!DOCTYPE html>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600" rel="stylesheet" />
     ${cssFile ? `<link rel="stylesheet" href="/assets/${cssFile}" />` : ""}
+    <script>
+      window.$R = window.$R || {};
+      window.$_TSR = window.$_TSR || {
+        hydrated: true,
+        streamEnded: true,
+        initialized: true,
+        buffer: [],
+        h() { this.hydrated = true; this.c(); },
+        e() { this.streamEnded = true; this.c(); },
+        c() {},
+        p(e) { if (typeof e === 'function') e(); },
+        router: {
+          manifest: { routes: {} },
+          matches: [{ i: "__root__", u: Date.now(), s: "success", ssr: false }],
+          lastMatchId: "__root__"
+        }
+      };
+    </script>
   </head>
   <body class="bg-background text-foreground antialiased">
     <div id="root"></div>
