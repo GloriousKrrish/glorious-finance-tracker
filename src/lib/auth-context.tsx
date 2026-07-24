@@ -23,14 +23,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const timeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 1200);
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+      clearTimeout(timeout);
       setSession(data.session);
       setLoading(false);
     }).catch((err) => {
       console.error("[Auth] Failed to restore session:", err);
       if (!mounted) return;
+      clearTimeout(timeout);
       setSession(null);
       setLoading(false);
     });
@@ -43,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => { mounted = false; sub.subscription.unsubscribe(); };
+    return () => { mounted = false; clearTimeout(timeout); sub.subscription.unsubscribe(); };
   }, []);
 
   useEffect(() => {

@@ -139,9 +139,7 @@ function AuthGate() {
 
   if (loading || (session && storeLoading)) return <BootScreen />;
 
-  if (isAuthRoute || isOnboardingRoute) return <Outlet />;
-
-  if (!session) return <BootScreen />;
+  if (!session || isAuthRoute || isOnboardingRoute) return <Outlet />;
 
   return (
     <SidebarProvider>
