@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16" />
+      <stop offset="50%" stop-color="#1E1B4B" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" />
+      <stop offset="50%" stop-color="#FCD34D" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <linearGradient id="emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Shield/Rounded Rect -->
+  <rect x="5" y="5" width="90" height="90" rx="24" fill="url(#bg)" stroke="url(#gold)" stroke-width="3" />
+
+  <!-- Stylized G Monogram -->
+  <path d="M 62 38 C 58 30 46 28 36 34 C 26 40 24 54 30 64 C 36 74 50 76 60 70 C 66 66 68 58 68 52 L 48 52" 
+        fill="none" 
+        stroke="url(#gold)" 
+        stroke-width="8" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+
+  <!-- Sparkle Accent -->
+  <path d="M 72 26 L 74 32 L 80 34 L 74 36 L 72 42 L 70 36 L 64 34 L 70 32 Z" fill="url(#emerald)" />
+</svg>
